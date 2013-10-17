@@ -1,4 +1,4 @@
 BNN
 ===
 
-Bayesian Neural Networks
+The first source commit for this project is under development and will be uploaded soon. 

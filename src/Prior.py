@@ -36,10 +36,10 @@ class Prior:
     
 
 class ARD_Prior(Prior):
-    def __init__(self,param,weights,biases,precision=np.float32):
+    def __init__(self,shape,scale,weights,biases,precision=np.float32):
         self.precision = precision
-        self.shape = 10.0
-        self.scale = 10.0
+        self.shape = shape
+        self.scale = scale
         self.sW = gpuarray.zeros((1,weights.shape[0]),precision)
         self.sB = gpuarray.zeros((1,1),precision)
         kernels = SourceModule(open(path+'/kernels.cu', "r").read())        
@@ -113,10 +113,10 @@ class ARD_Prior(Prior):
         self.scale_momentum_kernel(pB,self.sB,M,N,block=(32,32,1),grid=(grid1,grid2)) 
         
 class Normal_Unit_Prior(Prior):
-    def __init__(self,param,weights,biases,precision=np.float32):
+    def __init__(self,shape,scale,weights,biases,precision=np.float32):
         self.precision = precision
-        self.shape = 4.0
-        self.scale = 1.0
+        self.shape = shape
+        self.scale = scale
         self.sW = gpuarray.zeros((1,weights.shape[1]),precision)
         self.sB = gpuarray.zeros((1,1),precision)
         kernels = SourceModule(open(path+'/kernels.cu', "r").read())        

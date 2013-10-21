@@ -78,7 +78,7 @@ class Layer:
      
 
 class Softmax_Layer(Layer):
-    def __init__(self,n_classes,n_incoming,N,prior_type,prior_params,init_sd=1.0,precision=np.float32):
+    def __init__(self,n_classes,n_incoming,N,prior,init_sd=1.0,precision=np.float32):
         self.n_incoming = n_incoming
         w = np.random.normal(0,init_sd,(self.n_incoming,n_classes))
         b = np.random.normal(0,init_sd,(1,n_classes))
@@ -87,13 +87,7 @@ class Softmax_Layer(Layer):
                         
         self.biases = gpuarray.to_gpu(b.copy().astype(precision))
         self.gB = gpuarray.empty_like(self.biases)
-        if prior_type == 'ARD':
-            self.prior = ARD_Prior(prior_params,self.weights,self.biases)
-        elif prior_type == 'normal_unit':
-            self.prior = Normal_Unit_Prior(prior_params,self.weights,self.biases)
-        else:
-            print 'Prior type ' + str(prior_type) + ' is currently not implemented.'
-            raise NotImplementedError
+        self.prior = prior
         
         #Set up momentum variables for HMC sampler
         self.pW = gpuarray.to_gpu(np.random.normal(0,1,self.gW.shape))
@@ -229,7 +223,7 @@ class Softmax_Layer(Layer):
         self.prior.scaleMomentum(self.pW,self.pB)
 
 class Gaussian_Layer(Layer):
-    def __init__(self,n_outputs,n_incoming,N,prior_type,prior_params,init_sd=1.0,precision=np.float32):
+    def __init__(self,n_outputs,n_incoming,N,prior,init_sd=1.0,precision=np.float32):
         self.n_outputs = n_outputs
         self.n_incoming = n_incoming
         w = np.random.normal(0,init_sd,(self.n_incoming,self.n_outputs))
@@ -239,14 +233,8 @@ class Gaussian_Layer(Layer):
                         
         self.biases = gpuarray.to_gpu(b.copy().astype(precision))
         self.gB = gpuarray.empty_like(self.biases)
-        if prior_type == 'ARD':
-            self.prior = ARD_Prior(prior_params,self.weights,self.biases)
-        elif prior_type == 'normal_unit':
-            self.prior = Normal_Unit_Prior(prior_params,self.weights,self.biases)
-        else:
-            print 'Prior type ' + str(prior_type) + ' is currently not implemented.'
-            raise NotImplementedError
-        
+        self.prior = prior
+                
         #Set up momentum variables for HMC sampler
         self.pW = gpuarray.to_gpu(np.random.normal(0,1,self.gW.shape))
         self.pB = gpuarray.to_gpu(np.random.normal(0,1,self.gB.shape))    
@@ -350,7 +338,7 @@ class Gaussian_Layer(Layer):
 
         
 class Sigmoid_Layer(Layer):
-    def __init__(self,n_units,n_incoming,N,prior_type,prior_params,ID,init_sd=1.0,precision=np.float32):
+    def __init__(self,n_units,n_incoming,N,prior,ID,init_sd=1.0,precision=np.float32):
         self.ID = ID
         self.n_units = n_units
         self.n_incoming = n_incoming
@@ -362,14 +350,7 @@ class Sigmoid_Layer(Layer):
                 
         self.biases = gpuarray.to_gpu(b.copy().astype(precision))
         self.gB = gpuarray.empty_like(self.biases)
-        
-        if prior_type == 'ARD':
-            self.prior = ARD_Prior(prior_params,self.weights,self.biases)
-        elif prior_type == 'normal_unit':
-            self.prior = Normal_Unit_Prior(prior_params,self.weights,self.biases)
-        else:
-            print 'Prior type ' + str(prior_type) + ' is currently not implemented.'
-            raise NotImplementedError 
+        self.prior = prior
             
         #Set up momentum variables for HMC sampler
         self.pW = gpuarray.to_gpu(np.random.normal(0,1,self.gW.shape))
@@ -500,7 +481,7 @@ class Sigmoid_Layer(Layer):
         raise NotImplementedError 
 
 class Tanh_Layer(Layer):
-    def __init__(self,n_units,n_incoming,N,prior_type,prior_params,ID,init_sd=1.0,magic_numbers=True,precision=np.float32):
+    def __init__(self,n_units,n_incoming,N,prior,ID,init_sd=1.0,magic_numbers=True,precision=np.float32):
         self.ID = ID
         self.n_units = n_units
         self.n_incoming = n_incoming
@@ -512,14 +493,7 @@ class Tanh_Layer(Layer):
                 
         self.biases = gpuarray.to_gpu(b.copy().astype(precision))
         self.gB = gpuarray.empty_like(self.biases)
-        
-        if prior_type == 'ARD':
-            self.prior = ARD_Prior(prior_params,self.weights,self.biases)
-        elif prior_type == 'normal_unit':
-            self.prior = Normal_Unit_Prior(prior_params,self.weights,self.biases)
-        else:
-            print 'Prior type ' + str(prior_type) + ' is currently not implemented.'
-            raise NotImplementedError 
+        self.prior = prior
             
         #Set up momentum variables for HMC sampler
         self.pW = gpuarray.to_gpu(np.random.normal(0,1,self.gW.shape))
@@ -650,14 +624,7 @@ class Rectified_Linear_Layer(Layer):
                 
         self.biases = gpuarray.to_gpu(b.copy().astype(precision))
         self.gB = gpuarray.empty_like(self.biases)
-        
-        if prior_type == 'ARD':
-            self.prior = ARD_Prior(prior_params,self.weights,self.biases)
-        elif prior_type == 'normal_unit':
-            self.prior = Normal_Unit_Prior(prior_params,self.weights,self.biases)
-        else:
-            print 'Prior type ' + str(prior_type) + ' is currently not implemented.'
-            raise NotImplementedError 
+        self.prior = prior
             
         #Set up momentum variables for HMC sampler
         self.pW = gpuarray.to_gpu(np.random.normal(0,1,self.gW.shape))

@@ -38,8 +38,8 @@ class Prior:
 class ARD_Prior(Prior):
     def __init__(self,param,weights,biases,precision=np.float32):
         self.precision = precision
-        self.shape = 4.0
-        self.scale = 1.0
+        self.shape = 10.0
+        self.scale = 10.0
         self.sW = gpuarray.zeros((1,weights.shape[0]),precision)
         self.sB = gpuarray.zeros((1,1),precision)
         kernels = SourceModule(open(path+'/kernels.cu', "r").read())        

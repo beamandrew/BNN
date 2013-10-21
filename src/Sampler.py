@@ -83,12 +83,12 @@ class HMC_sampler:
         eps = self.eps
         while self.sim < n_sim:
             self.sim += 1.0
-            self.net.updateAllHyperParams()
             if verbose:
                 print 'Iteration ' + str(self.sim)
                 print 'T: ' + str(np.float(T))
                 print 'eps: ' + str(np.float(eps))                
             self.HMC_sample(self.L,eps,T=T,verbose=verbose)
+            self.net.updateAllHyperParams()
             T = np.max([eta*T,1.0])
             if epsDecay:
                 eps = float(np.max([eps*eps_eta,epsFinal]))

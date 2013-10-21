@@ -81,7 +81,7 @@ class Layer:
      
 
 class Softmax_Layer(Layer):
-    def __init__(self,n_classes,n_incoming,N,init_sd=1.0,precision=np.float32):
+    def __init__(self,n_classes,n_incoming,N,init_sd=0.1,precision=np.float32):
         self.n_incoming = n_incoming
         self.N = N
         w = np.random.normal(0,init_sd,(self.n_incoming,n_classes))
@@ -233,7 +233,7 @@ class Softmax_Layer(Layer):
         self.prior.scaleMomentum(self.pW,self.pB)
 
 class Gaussian_Layer(Layer):
-    def __init__(self,n_outputs,n_incoming,N,prior,init_sd=1.0,precision=np.float32):
+    def __init__(self,n_outputs,n_incoming,N,prior,init_sd=0.1,precision=np.float32):
         self.n_outputs = n_outputs
         self.n_incoming = n_incoming
         w = np.random.normal(0,init_sd,(self.n_incoming,self.n_outputs))

@@ -36,11 +36,11 @@ class Prior:
     
 
 class ARD_Prior(Prior):
-    def __init__(self,shape,scale,weights,biases,precision=np.float32):
+    def __init__(self,shape,scale,layer,precision=np.float32):
         self.precision = precision
         self.shape = shape
         self.scale = scale
-        self.sW = gpuarray.zeros((1,weights.shape[0]),precision)
+        self.sW = gpuarray.zeros((1,layer.weights.shape[0]),precision)
         self.sB = gpuarray.zeros((1,1),precision)
         kernels = SourceModule(open(path+'/kernels.cu', "r").read())        
         self.add_prior_kernel = kernels.get_function("add_ARD_grad")
@@ -48,7 +48,7 @@ class ARD_Prior(Prior):
         self.scale_momentum_kernel = kernels.get_function("scale_momentum_ARD")
         
         ##initialize with random draw
-        self.updatePriorVals(weights,biases)
+        self.updatePriorVals(layer.weights,layer.biases)
     
     def updateWeightGradient(self,weights,gW):
         grid1 = (gW.shape[1]+32-1)/32
@@ -112,12 +112,12 @@ class ARD_Prior(Prior):
         N = np.int32(pB.shape[1])
         self.scale_momentum_kernel(pB,self.sB,M,N,block=(32,32,1),grid=(grid1,grid2)) 
         
-class Normal_Unit_Prior(Prior):
-    def __init__(self,shape,scale,weights,biases,precision=np.float32):
+class Gaussian_Unit_Prior(Prior):
+    def __init__(self,shape,scale,layer,precision=np.float32):
         self.precision = precision
         self.shape = shape
         self.scale = scale
-        self.sW = gpuarray.zeros((1,weights.shape[1]),precision)
+        self.sW = gpuarray.zeros((1,layer.weights.shape[1]),precision)
         self.sB = gpuarray.zeros((1,1),precision)
         kernels = SourceModule(open(path+'/kernels.cu', "r").read())        
         self.add_prior_w_kernel = kernels.get_function("add_normal_unit_grad")
@@ -125,7 +125,7 @@ class Normal_Unit_Prior(Prior):
         self.scale_momentum_kernel = kernels.get_function("scale_momentum_normal_unit")
                 
         ##initialize with random draw
-        self.updatePriorVals(weights,biases)
+        self.updatePriorVals(layer.weights,layer.biases)
         
     def updateWeightGradient(self,weights,gW):
         grid1 = (gW.shape[1]+32-1)/32

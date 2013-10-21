@@ -23,50 +23,23 @@ import scikits.cuda.misc as cumisc
 linalg.init()
 
 class BNN:
-    def __init__(self,layer_sizes,X,Y,prior_params,layer_types,prior_structure='default',init_sd=1.0,magic_numbers=True,precision=np.float32):
-        self.layer_sizes = layer_sizes
+    def __init__(self,X,Y,layers,init_sd=1.0,precision=np.float32):
         self.X = gpuarray.to_gpu(X.astype(precision).copy())
         self.Y = gpuarray.to_gpu(Y.astype(precision).copy())
         self.precision = precision
-        self.layer_types = layer_types       
+                
         #Compile kernels 
         kernels = SourceModule(open(path+'/kernels.cu', "r").read())
         
-        #Setup default prior structure
-        if prior_structure == 'default':
-            prior_structure = list()
-            for i in range(0,len(layer_sizes)):
-                if i == 0:                
-                    prior_structure.append('ARD')
-                else:
-                    prior_structure.append('normal_unit')
-        self.layers = list()
-        self.n_classes = layer_sizes[-1]
+        self.layers = layers
+        self.n_classes = Y.shape[1]
         self.N = len(X)
-        self.prior_params = prior_params.astype(self.precision)
-        prior_type = prior_structure[-1]
-        #Set up the top layer
-        if layer_types[-1] == 'softmax':
-            top_layer = Softmax_Layer(self.n_classes,layer_sizes[-2],self.N,prior_type,self.prior_params[-1],init_sd=init_sd)
-        elif layer_types[-1] == 'gaussian':
-            top_layer = Gaussian_Layer(self.n_classes,layer_sizes[-2],self.N,prior_type,self.prior_params[-1],init_sd=init_sd)
-        else:
-            print 'Layer type ' + layer_types[-1] + ' is not currently implemented.'
-            raise NotImplementedError
+        
         ID = 0
         #Create the network, layer by layer
-        for i in range(1,(len(layer_sizes)-1)):
-            prior_type = prior_structure[i-1]
-            if layer_types[i-1] == 'tanh':
-                layer = Tanh_Layer(layer_sizes[i],layer_sizes[i-1],self.N,prior_type,self.prior_params[i-1],ID,init_sd=init_sd,magic_numbers=magic_numbers)
-            elif layer_types[i-1] == 'sig':
-                layer = Sigmoid_Layer(layer_sizes[i],layer_sizes[i-1],self.N,prior_type,self.prior_params[i-1],ID,init_sd=init_sd)
-            else:
-                print 'Layer type ' + layer_types[i-1] + ' is not currently implemented.'
-                raise NotImplementedError
+        for i in range(0,len(layers)):
+            layers[i].ID = ID
             ID += 1
-            self.layers.append(layer)
-        self.layers.append(top_layer)
         self.num_layers = len(self.layers)
     
     ## MUST CALL FEED_FORWARD BEFORE USING THIS FUNCTION
@@ -151,19 +124,14 @@ class BNN:
     def getTrainAccuracy(self):
         self.feed_forward()
         accuracy = 0.0
-        if self.layer_types[-1] == 'softmax':
-            preds = (self.layers[-1].outputs.get())
-            Y_cpu = self.Y.get()
-            errors = 0.0
-            for i in range(0,len(preds)):
-                errors += 1.0-Y_cpu[i,preds[i].argmax()]
-            
-            accuracy = 1.0 - errors/len(preds)
-        elif self.layer_types[-1] == 'gaussian':
-            rmse = 0.0
-            diff = (self.Y - self.layers[-1].outputs).get()
-            rmse = np.sqrt((diff**2).mean())
-            accuracy = rmse
+        #if self.layer_types[-1] == 'softmax':
+        preds = (self.layers[-1].outputs.get())
+        Y_cpu = self.Y.get()
+        errors = 0.0
+        for i in range(0,len(preds)):
+            errors += 1.0-Y_cpu[i,preds[i].argmax()]    
+        accuracy = 1.0 - errors/len(preds)
+        
         return accuracy
     
     ## MUST CALL FEED_FORWARD BEFORE USING THIS FUNCTION

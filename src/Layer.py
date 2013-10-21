@@ -64,6 +64,9 @@ class Layer:
     
     @abstractmethod 
     def scaleMomentum(self): pass
+
+    @abstractmethod 
+    def setPrior(self): pass
     
     @abstractmethod
     def get_log_like_val(self): pass
@@ -78,8 +81,9 @@ class Layer:
      
 
 class Softmax_Layer(Layer):
-    def __init__(self,n_classes,n_incoming,N,prior,init_sd=1.0,precision=np.float32):
+    def __init__(self,n_classes,n_incoming,N,init_sd=1.0,precision=np.float32):
         self.n_incoming = n_incoming
+        self.N = N
         w = np.random.normal(0,init_sd,(self.n_incoming,n_classes))
         b = np.random.normal(0,init_sd,(1,n_classes))
         self.weights = gpuarray.to_gpu(w.copy().astype(precision))
@@ -87,7 +91,10 @@ class Softmax_Layer(Layer):
                         
         self.biases = gpuarray.to_gpu(b.copy().astype(precision))
         self.gB = gpuarray.empty_like(self.biases)
-        self.prior = prior
+        
+        # Prior and ID are set later        
+        self.prior = -1
+        self.ID = -1
         
         #Set up momentum variables for HMC sampler
         self.pW = gpuarray.to_gpu(np.random.normal(0,1,self.gW.shape))
@@ -110,6 +117,9 @@ class Softmax_Layer(Layer):
         ##Initialize posterior weights
         self.posterior_weights = list()
         self.posterior_biases = list()
+        
+    def setPrior(self,prior):
+        self.prior = prior
     
     def updateOutputs(self,inputs): 
         self.outputs = linalg.dot(inputs,self.weights)
@@ -338,25 +348,28 @@ class Gaussian_Layer(Layer):
 
         
 class Sigmoid_Layer(Layer):
-    def __init__(self,n_units,n_incoming,N,prior,ID,init_sd=1.0,precision=np.float32):
-        self.ID = ID
+    def __init__(self,n_units,n_incoming,N,init_sd=1.0,precision=np.float32):
+        
         self.n_units = n_units
         self.n_incoming = n_incoming
+        self.N = N
         w = np.random.normal(0,init_sd,(self.n_incoming,self.n_units))
         b = np.random.normal(0,init_sd,(1,n_units))
         
         self.weights = gpuarray.to_gpu(w.copy().astype(precision))
         self.gW = gpuarray.empty_like(self.weights)
+        
+        # Prior and ID must be set after creation
+        self.prior = -1
+        self.ID = -1
                 
         self.biases = gpuarray.to_gpu(b.copy().astype(precision))
         self.gB = gpuarray.empty_like(self.biases)
-        self.prior = prior
             
         #Set up momentum variables for HMC sampler
         self.pW = gpuarray.to_gpu(np.random.normal(0,1,self.gW.shape))
         self.pB = gpuarray.to_gpu(np.random.normal(0,1,self.gB.shape))
         
-        self.N = N
         self.precision = precision
         self.outputs = gpuarray.zeros((self.N,self.n_units),precision)   
         
@@ -374,6 +387,9 @@ class Sigmoid_Layer(Layer):
         ##Initialize posterior weights
         self.posterior_weights = list()
         self.posterior_biases = list()
+    
+    def setPrior(self,prior):
+        self.prior = prior
     
     def setWeights(self,new_weights):
         self.weights = new_weights

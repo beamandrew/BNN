@@ -178,21 +178,28 @@ class HMC_sampler:
             self.net.layers[i].setWeights(self.current_weights[i])
             self.net.layers[i].setBiases(self.current_biases[i])
     
-    def getARDSummary(self,plot=0):
+    
+    def getARDSummary(self,plot=0,useMedian=False):
         P = self.net.layers[0].prior.sW.shape[1]
-        means = np.zeros(P)
+        summary = np.zeros(P)
         stds = np.zeros(P)
         for i in range(0,P):
             current_var = np.zeros(len(self.posterior_sd))
             for j in range(0,len(current_var)):
                 sample = self.posterior_sd[j][0,i]
                 current_var[j] = sample
-            means[i] = current_var.mean()
+            if useMedian:
+                summary[i] = np.median(current_var)
+            else:
+                summary[i] = current_var.mean()
             stds[i] = current_var.std()
-        args = means.argsort()
+        args = summary.argsort()
         for i in range(1,len(args)+1):
             index = args[-i]
-            print 'Mean ARD for feature ' + str(index+1) + ' is ' +str(means[index])
+            if useMedian:
+                print 'Median ARD for feature ' + str(index+1) + ' is ' +str(summary[index])
+            else:
+                print 'Mean ARD for feature ' + str(index+1) + ' is ' +str(summary[index])
             if(plot ==1):
                 current_var = np.zeros(len(self.posterior_sd))
                 for j in range(0,len(current_var)):

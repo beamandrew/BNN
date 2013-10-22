@@ -31,71 +31,71 @@ __global__ void add_bias(float *output, float *bias, int M, int N)
 }
 
 //Add prior contribution to gradient
-__global__ void add_ARD_grad(float *gradW, float* weights, float *sig, int M, int N)
+__global__ void add_ARD_grad(float *gradW, float* weights, float *sig2, int M, int N)
 {
         int row = blockIdx.y*blockDim.y + threadIdx.y;
         int col = blockIdx.x*blockDim.x + threadIdx.x;
         int index = row*N + col;
                 
         if(row < M && col < N) {
-	        gradW[index] -= weights[index]/(sig[row]*sig[row]);          
+	        gradW[index] -= weights[index]/(sig2[row]);          
         }                        
 }
 
 //Add prior contribution to gradient
-__global__ void add_gaussian_layer_grad(float *gradW, float* weights, float sig, int M, int N)
+__global__ void add_gaussian_layer_grad(float *gradW, float* weights, float sig2, int M, int N)
 {
         int row = blockIdx.y*blockDim.y + threadIdx.y;
         int col = blockIdx.x*blockDim.x + threadIdx.x;
         int index = row*N + col;
                 
         if(row < M && col < N) {
-	        gradW[index] -= weights[index]/(sig);          
+	        gradW[index] -= weights[index]/(sig2);          
         }                        
 }
 
 //Add prior contribution to gradient
-__global__ void add_gaussian_unit_grad(float *gradW, float* weights, float *sig, int M, int N)
+__global__ void add_gaussian_unit_grad(float *gradW, float* weights, float *sig2, int M, int N)
 {
         int row = blockIdx.y*blockDim.y + threadIdx.y;
         int col = blockIdx.x*blockDim.x + threadIdx.x;
         int index = row*N + col;
                 
         if(row < M && col < N) {
-	        gradW[index] -= weights[index]/(sig[col]*sig[col]);          
+	        gradW[index] -= weights[index]/(sig2[col]);          
         }                        
 }
 
 //Add prior contribution to gradient
-__global__ void add_bias_grad(float *gradB, float* biases, float *sig, int M, int N)
+__global__ void add_bias_grad(float *gradB, float* biases, float *sig2, int M, int N)
 {
         int index = blockIdx.x*blockDim.x + threadIdx.x;
                 
         if(index < N) {
-	        gradB[index] -= biases[index]/(sig[0]*sig[0]);          
+	        gradB[index] -= biases[index]/(sig2[0]);          
         }                        
 }
 
 //Scale momentum variables using current sd for ARD prior
-__global__ void scale_momentum_ARD(float* p, float *sig, int M, int N)
+__global__ void scale_momentum_ARD(float* p, float *sig2, int M, int N)
 {
         int row = blockIdx.y*blockDim.y + threadIdx.y;
         int col = blockIdx.x*blockDim.x + threadIdx.x;
         int index = row*N + col;
                 
         if(row < M && col < N) {
-	        p[index] = p[index]*(sig[row]*sig[row]);          
+	        p[index] = p[index]*(sig2[row]);          
         }                        
 }     
 
 //Scale momentum variables using current sd for normal unit prior
-__global__ void scale_momentum_normal_unit(float* p, float *sig, int M, int N)
+__global__ void scale_momentum_normal_unit(float* p, float *sig2, int M, int N)
 {
         int row = blockIdx.y*blockDim.y + threadIdx.y;
         int col = blockIdx.x*blockDim.x + threadIdx.x;
         int index = row*N + col;
                 
         if(row < M && col < N) {
-	        p[index] = p[index]*(sig[col]*sig[col]);          
+	        p[index] = p[index]*(sig2[col]);          
         }                        
 }

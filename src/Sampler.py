@@ -87,8 +87,8 @@ class HMC_sampler:
                 print 'Iteration ' + str(self.sim)
                 print 'T: ' + str(np.float(T))
                 print 'eps: ' + str(np.float(eps))                
-            self.HMC_sample(self.L,eps,T=T,verbose=verbose)
             self.net.updateAllHyperParams()
+            self.HMC_sample(self.L,eps,T=T,verbose=verbose)
             T = np.max([eta*T,1.0])
             if epsDecay:
                 eps = float(np.max([eps*eps_eta,epsFinal]))
@@ -236,7 +236,7 @@ class HMC_sampler:
         self.copy_params()
         
         self.net.updateAllGradients()
-        self.net.updateAllHyperParams()
+        #self.net.updateAllHyperParams()
         ##take an initial half-step
         for i in range(0,len(self.net.layers)):
             layer = self.net.layers[i]

@@ -77,8 +77,7 @@ class ARD_Prior(Prior):
         n_w = np.float32(weights_cpu.shape[1])
         shape_new = (self.shape + n_w)/2.0
         for i in range(0,len(weights_cpu)):
-            mu = weights_cpu[i].mean()
-            scale_new =  self.scale + ((weights_cpu[i] - mu)**2).sum()/2.0
+            scale_new =  self.scale + ((weights_cpu[i])**2).sum()/2.0
             new_val = invgamma.rvs(shape_new,scale=scale_new,size=1)
             new_sW[0,i] = np.float32(new_val)
             #print 'New shape for feature ' + str(i+1) + ': ' + str(shape_new)
@@ -90,9 +89,8 @@ class ARD_Prior(Prior):
         ## Biases have common variance
         biases_cpu = biases.get()
         n_b = np.float32(biases.shape[1])
-        mu_bias = biases_cpu.mean()
         shape_new = (self.shape + n_b)/2
-        scale_new =  self.scale  + ((biases_cpu - mu_bias)**2).sum()/2.0
+        scale_new =  self.scale  + ((biases_cpu)**2).sum()/2.0
         new_val = invgamma.rvs(shape_new,scale=scale_new,size=1)
         new_sB = np.float32(new_val)
         self.sB = gpuarray.to_gpu(new_sB)
@@ -160,10 +158,7 @@ class Gaussian_Unit_Prior(Prior):
         n_w = np.float32(weights_cpu.shape[0])
         shape_new = (self.shape + n_w)/2
         for i in range(0,weights_cpu.shape[1]):
-            # All of this is done with in terms of precision
-            # Small precision -> large variance, np.random.gamma wants a scale
-            mu = weights_cpu[:,i].mean()
-            scale_new =  self.scale + ((weights_cpu[:,i] - mu)**2).sum()/2.0
+            scale_new =  self.scale + ((weights_cpu[:,i])**2).sum()/2.0
             new_val = invgamma.rvs(shape_new,scale=scale_new,size=1)
             new_sW[0,i] = np.float32(new_val)
         self.sW = gpuarray.to_gpu(new_sW.astype(self.precision))
@@ -171,9 +166,8 @@ class Gaussian_Unit_Prior(Prior):
          ## Biases have common variance
         biases_cpu = biases.get()
         n_b = np.float32(biases.shape[1])
-        mu_bias = biases_cpu.mean()
         shape_new = (self.shape + n_b)/2
-        scale_new =  self.scale + ((biases_cpu - mu_bias)**2).sum()/2.0
+        scale_new =  self.scale + ((biases_cpu)**2).sum()/2.0
         new_val = invgamma.rvs(shape_new,scale=scale_new,size=1)
         new_sB = np.float32(new_val)
         self.sB = gpuarray.to_gpu(new_sB)

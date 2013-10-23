@@ -254,7 +254,7 @@ class HMC_sampler:
         
         for step in range(0,L):
             #Update the parameters
-            self.net.updateAllHyperParams()
+            
             for i in range(0,len(self.net.layers)):
                 layer = self.net.layers[i]
                 layer.weights += eps*layer.pW
@@ -267,6 +267,7 @@ class HMC_sampler:
                     layer = self.net.layers[i]
                     layer.pW += eps*layer.gW
                     layer.pB += eps*layer.gB
+            self.net.updateAllHyperParams()
         
         self.net.feed_forward()
         self.net.updateAllGradients()
@@ -282,9 +283,9 @@ class HMC_sampler:
         self.net.feed_forward()
         proposed_u = self.net.posterior_kernel_val()
         #Divide by T in the case of SA
-        proposed_k = self.net.get_total_k()/T
+        proposed_k = self.net.get_total_k()
         
-        diff = (proposed_u-proposed_k) - (current_u-current_k)
+        diff = ((proposed_u-proposed_k) - (current_u-current_k))/T
         alpha = np.min([0,diff])
         u = np.log(np.random.random(1)[0])
         self.log_alpha = alpha

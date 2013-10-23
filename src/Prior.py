@@ -46,7 +46,8 @@ class ARD_Prior(Prior):
         init_var = invgamma.rvs(1.0,scale=1.0,size=(1,layer.weights.shape[0])).astype(precision)
         self.sW = gpuarray.to_gpu(init_var)
         
-        self.sB = gpuarray.zeros((1,1),precision)
+        init_var = invgamma.rvs(1.0,scale=1.0,size=(1,1)).astype(precision)
+        self.sB = gpuarray.to_gpu(init_var)
         kernels = SourceModule(open(path+'/kernels.cu', "r").read())        
         self.add_prior_kernel = kernels.get_function("add_ARD_grad")
         self.add_prior_b_kernel = kernels.get_function("add_bias_grad")
@@ -126,7 +127,8 @@ class Gaussian_Unit_Prior(Prior):
         init_var = invgamma.rvs(1.0,scale=1.0,size=(1,layer.weights.shape[1])).astype(precision)
         self.sW = gpuarray.to_gpu(init_var)
         
-        self.sB = gpuarray.zeros((1,1),precision)
+        init_var = invgamma.rvs(1.0,scale=1.0,size=(1,1)).astype(precision)
+        self.sB = gpuarray.to_gpu(init_var)
         kernels = SourceModule(open(path+'/kernels.cu', "r").read())        
         self.add_prior_w_kernel = kernels.get_function("add_gaussian_unit_grad")
         self.add_prior_b_kernel = kernels.get_function("add_bias_grad")
@@ -202,22 +204,27 @@ class Gaussian_Layer_Prior(Prior):
         self.precision = precision
         self.shape = shape
         self.scale = scale
-        self.sW = gpuarray.zeros((1,1),precision)
-        self.sB = gpuarray.zeros((1,1),precision)
+        
+        init_var = invgamma.rvs(1.0,scale=1.0).astype(precision)
+        self.sW = gpuarray.to_gpu(init_var)
+        
+        init_var = invgamma.rvs(1.0,scale=1.0,size=(1,1)).astype(precision)
+        self.sB = gpuarray.to_gpu(init_var)
         kernels = SourceModule(open(path+'/kernels.cu', "r").read())        
         self.add_prior_w_kernel = kernels.get_function("add_gaussian_layer_grad")
         self.add_prior_b_kernel = kernels.get_function("add_bias_grad")
         self.scale_momentum_kernel = kernels.get_function("scale_momentum_normal_unit")
                 
         ##initialize with random draw
-        self.updatePriorVals(layer.weights,layer.biases)
+        #self.updatePriorVals(layer.weights,layer.biases)
         
     def updateWeightGradient(self,weights,gW):
         grid1 = (gW.shape[1]+32-1)/32
         grid2 = (gW.shape[0]+32-1)/32
         M = np.int32(gW.shape[0])       
         N = np.int32(gW.shape[1])
-        #Adds prior contribution to gradient on gpuarray object        
+        
+        #Adds prior contribution to gradient on gpuarray object     
         self.add_prior_w_kernel(gW,weights, self.sW, M, N, block=(32,32,1),grid=( grid1,grid2) )
     
     def updateBiasGradient(self,biases,gB):
@@ -232,35 +239,36 @@ class Gaussian_Layer_Prior(Prior):
     def updatePriorVals(self,weights,biases): 
         new_sW = np.zeros(self.sW.shape)
         weights_cpu = weights.get()
-        n_w = weights_cpu.shape[0]
+        n_w = np.float32(weights_cpu.shape[0]*weights_cpu.shape[1])
         shape_new = (self.shape + n_w)/2
-        
-        # All of this is done with in terms of precision
-        # Small precision -> large variance
-        scale_new =  self.scale + 0.5*(( weights_cpu**2 ).sum())
-        new_val = np.random.gamma(shape_new,scale_new)
-        
-        # Compute new variance
-        new_sW = np.sqrt(new_val)
+        scale_new =  self.scale + (weights_cpu**2).sum()/2.0
+        #print 'New shape for feature ' + ': ' + str(shape_new)
+        #print 'New scale for feature ' + ': ' + str(scale_new)
+        #print 'Weights ' + ': ' + str((weights_cpu))        
+        #print 'W**2 ' + ': ' + str((weights_cpu**2))
+        #print 'Weight SS ' + ': ' + str((weights_cpu**2).sum())
+        new_val = invgamma.rvs(shape_new,scale=scale_new,size=1)
+        #print 'New standard deviation for feature ' + ': ' + str(new_val)
+        new_sW = np.float32(new_val)
         self.sW = gpuarray.to_gpu(new_sW.astype(self.precision))
         
-        ## Biases have common variance
-        new_sB = np.zeros(self.sB.shape)
+         ## Biases have common variance
         biases_cpu = biases.get()
-        n_b = biases.shape[1]
+        n_b = np.float32(biases.shape[1])
         shape_new = (self.shape + n_b)/2
-        scale_new =  self.scale + 0.5*((biases_cpu**2).sum())
-        new_val = np.random.gamma(shape_new,scale_new)
-        new_sB =  new_val
-        self.sB = gpuarray.to_gpu(new_sB.astype(self.precision))
+        scale_new =  self.scale + ((biases_cpu)**2).sum()/2.0
+        new_val = invgamma.rvs(shape_new,scale=scale_new,size=1)
+        new_sB = np.float32(new_val)
+        self.sB = gpuarray.to_gpu(new_sB)
         
     def getPriorDensityValue(self,weights,biases):
         w = weights.get()
         b = biases.get()
-        sW = np.tile(self.sW.get(),(w.shape[0],1))
+        sW = np.tile(self.sW.get(),w.shape)
+        #print 'sW: ' + str(sW)
         sB = self.sB.get()
-        val = (np.log(1/(np.sqrt(2*np.pi)*sW)) - w**2/(2*sW**2)).sum()
-        val += (np.log(1/(np.sqrt(2*np.pi)*sB)) - b**2/(2*sB**2)).sum()
+        val = (np.log(1/(np.sqrt(2*np.pi*sW))) - w**2/(2.0*sW)).sum()        
+        val += (np.log(1/(np.sqrt(2*np.pi*sB))) - b**2/(2.0*sB)).sum()
         return val
     
     def scaleMomentum(self,pW,pB):

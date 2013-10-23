@@ -43,14 +43,14 @@ __global__ void add_ARD_grad(float *gradW, float* weights, float *sig2, int M, i
 }
 
 //Add prior contribution to gradient
-__global__ void add_gaussian_layer_grad(float *gradW, float* weights, float sig2, int M, int N)
+__global__ void add_gaussian_layer_grad(float *gradW, float* weights, float *sig2, int M, int N)
 {
         int row = blockIdx.y*blockDim.y + threadIdx.y;
         int col = blockIdx.x*blockDim.x + threadIdx.x;
         int index = row*N + col;
                 
         if(row < M && col < N) {
-	        gradW[index] -= weights[index]/(sig2);          
+	        gradW[index] -= weights[index]/(sig2[0]);          
         }                        
 }
 

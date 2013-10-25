@@ -43,7 +43,7 @@ class BNN:
         self.num_layers = len(self.layers)
     
     ## MUST CALL FEED_FORWARD BEFORE USING THIS FUNCTION
-    def updateAllGradients(self,print_timing=False):
+    def updateAllGradients(self,print_timing=False,include_prior=True):
         ##Compute gradient and do back-prop
         top_layer = self.layers[-1]
         bp = top_layer.updateGradient(self.Y,self.layers[-2].outputs,print_timing)
@@ -142,6 +142,23 @@ class BNN:
             val += l.prior.getPriorDensityValue(l.weights,l.biases)
         val += self.log_like_val()
         return val            
+    
+    #Initialize network with maximum-likelihood estimates
+    def initialize(self,iters=100,verbose=True,step_size=1e-3):
+        self.feed_forward()
+        for i in range(0,iters):
+            self.updateAllGradients(include_prior=False)
+            for j in range(0,self.num_layers):
+                layer = self.layers[j]
+                layer.weights += step_size*layer.gW
+                layer.biases += step_size*layer.gB
+            self.feed_forward()
+            if np.mod(i,100) == 0:
+                if verbose:
+                    print 'Iteration: ' + str(i)
+                    print 'Log-liklihood value: ' + str(self.log_like_val())
+                    print 'Current accuracy: ' + str(self.getTrainAccuracy())
+            
     
     def getMemoryStatus(self):
         (free,total)=cuda.mem_get_info()

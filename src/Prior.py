@@ -43,7 +43,8 @@ class ARD_Prior(Prior):
         self.scale = scale
         
         ##initialize with random draw
-        init_var = invgamma.rvs(1.0,scale=1.0,size=(1,layer.weights.shape[0])).astype(precision)
+        #init_var = invgamma.rvs(shape,scale=scale,size=(1,layer.weights.shape[0])).astype(precision)
+        init_var = (np.tile(100,reps=layer.weights.shape[0]).reshape(1,layer.weights.shape[0])).astype(precision)
         self.sW = gpuarray.to_gpu(init_var)
         
         init_var = invgamma.rvs(1.0,scale=1.0,size=(1,1)).astype(precision)
@@ -101,7 +102,7 @@ class ARD_Prior(Prior):
         b = biases.get()
         sW = np.tile(self.sW.get(),(weights.shape[1],1)).T
         sB = self.sB.get()
-        val = (np.log(1/(np.sqrt(2*np.pi*sW))) - (w**2.0)/(2.0*sW)).sum()
+        val = (np.log(1/(np.sqrt(2*np.pi*sW))) - w**2.0/(2.0*sW)).sum()
         val += (np.log(1/(np.sqrt(2*np.pi*sB))) - b**2.0/(2.0*sB)).sum()
         return val
     
@@ -205,7 +206,7 @@ class Gaussian_Layer_Prior(Prior):
         self.shape = shape
         self.scale = scale
         
-        init_var = invgamma.rvs(1.0,scale=1.0).astype(precision)
+        init_var = np.float32(100.0)
         self.sW = gpuarray.to_gpu(init_var)
         
         init_var = invgamma.rvs(1.0,scale=1.0,size=(1,1)).astype(precision)

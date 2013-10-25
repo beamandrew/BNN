@@ -37,26 +37,10 @@ class HMC_sampler:
                     self.net.layers[i].addPosteriorWeightSample(self.net.layers[i].weights.get())
                     self.net.layers[i].addPosteriorBiasSample(self.net.layers[i].biases.get())
                 
-    def initialize(self):
-        original_eps = self.eps
-        original_L = self.L
-        eps_vals = [0.1,0.01,0.001,0.0001]
-        for eps in eps_vals:
-            self.eps = eps
-            self.L = 5
-            print 'Eps value ' + str(eps)
-            self.net.feed_forward()
-            current_u = self.net.posterior_kernel_val()
-            self.simple_annealing_sim(0,1,eta=1.0,T0=10,verbose=False)
-            next_u = self.net.posterior_kernel_val()
-            while next_u > current_u:
-                current_u = next_u
-                self.simple_annealing_sim(0,1,eta=1.0,T0=10,verbose=False)
-                next_u = self.net.posterior_kernel_val()
-                print 'Current training accuracy ' + str(self.net.getTrainClassificationAccuracy())
-        self.eps = original_eps
-        self.L = original_L
-        self.sim = 0.0
+    def initialize(self,iters=200,L_warmup=10,eps_warmup=1e-2,verbose=False):
+        for i in range(0,iters):
+            self.HMC_sample(L=L_warmup,eps=eps_warmup,verbose=verbose)
+        
             
     def fixed_L_random_eps_sim(self,n_keep,n_burnin,eps0=0.01,eta=1.0,verbose=False):
         n_sim = n_keep + n_burnin
@@ -254,7 +238,7 @@ class HMC_sampler:
         
         for step in range(0,L):
             #Update the parameters
-            
+            self.net.updateAllHyperParams()
             for i in range(0,len(self.net.layers)):
                 layer = self.net.layers[i]
                 layer.weights += eps*layer.pW
@@ -266,12 +250,11 @@ class HMC_sampler:
                 for i in range(0,len(self.net.layers)):
                     layer = self.net.layers[i]
                     layer.pW += eps*layer.gW
-                    layer.pB += eps*layer.gB
-            self.net.updateAllHyperParams()
+                    layer.pB += eps*layer.gB            
         
+        self.net.updateAllHyperParams()
         self.net.feed_forward()
         self.net.updateAllGradients()
-        self.net.updateAllHyperParams()
         ##take a final half-step
         for i in range(0,len(self.net.layers)):
             layer = self.net.layers[i]

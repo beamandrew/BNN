@@ -33,7 +33,7 @@ class Layer:
     def updateOutputs(self,inputs): pass
     
     @abstractmethod
-    def updateGradient(self,previous_grad): pass
+    def updateGradient(self,previous_grad,include_prior): pass
     
     @abstractmethod
     def setWeights(self,new_weights): pass
@@ -136,12 +136,11 @@ class Softmax_Layer(Layer):
         self.softmax_kernel(output, M, N, block=(1,32,1),grid=( 1,grid2) )    
     
     def get_log_like_val(self,Y):
-        return (gpuarray.sum( (cumath.log(self.outputs)*Y) )).get()
-    
+        return (gpuarray.sum( (cumath.log(self.outputs)*Y) )).get()    
     
     ## Updates the gradient information for all of the parameters in this layer.
     ## Returns the back-prop signal to be sent to the next layer
-    def updateGradient(self,Y,inputs,print_timing=False):
+    def updateGradient(self,Y,inputs,print_timing=False,include_prior=True):
         if print_timing:
             t0 =  t.time()
             t_run = t.time()
@@ -165,8 +164,9 @@ class Softmax_Layer(Layer):
         if print_timing:
             t1 = t.time()
             t0_prior = t.time()
-        self.prior.updateWeightGradient(self.weights,self.gW)
-        self.prior.updateBiasGradient(self.biases,self.gB)
+        if include_prior:
+            self.prior.updateWeightGradient(self.weights,self.gW)
+            self.prior.updateBiasGradient(self.biases,self.gB)
         if print_timing:
             t1_prior = t.time()
             print 'Total time for gradient update in softmax layer ' + str(t1-t0)
@@ -270,8 +270,8 @@ class Gaussian_Layer(Layer):
         self.add_bias(self.outputs,self.biases)
     
     def get_log_like_val(self,Y):
-        diff = Y-self.outputs
-        return gpuarray.sum((-(diff*diff)/2.0)).get()
+        prod = Y*self.outputs
+        return gpuarray.sum(prod).get()
     
     
     ## Updates the gradient information for all of the parameters in this layer.
@@ -397,7 +397,7 @@ class Sigmoid_Layer(Layer):
     def setBiases(self,new_biases):
         self.biases = new_biases
         
-    def updateGradient(self,bp_signal,inputs,print_timing=False):
+    def updateGradient(self,bp_signal,inputs,print_timing=False,include_prior=True):
         if print_timing:
             print '' 
             t0 =  t.time()
@@ -420,11 +420,12 @@ class Sigmoid_Layer(Layer):
         if print_timing:
             t_biases = t.time() - t_run
             t_run = t.time()
-        self.prior.updateWeightGradient(self.weights,self.gW)
-        if print_timing:
-            t_weights = t.time() - t_run
-            t_run = t.time()
-        self.prior.updateBiasGradient(self.biases,self.gB)
+        if include_prior:
+            self.prior.updateWeightGradient(self.weights,self.gW)
+            if print_timing:
+                t_weights = t.time() - t_run
+                t_run = t.time()
+            self.prior.updateBiasGradient(self.biases,self.gB)
         if print_timing:
             t_prior = t.time() - t_run
             print 'Total time for gradient update in hidden layer ' + str(self.ID) + ' '  + str(t.time()-t0)
@@ -628,28 +629,37 @@ class Tanh_Layer(Layer):
         raise NotImplementedError 
 
 class Rectified_Linear_Layer(Layer):
-    def __init__(self,n_units,n_incoming,N,prior_type,prior_params,ID,init_sd=1.0,precision=np.float32):
-        self.ID = ID
+    def __init__(self,n_units,n_incoming,N,init_sd=1.0,precision=np.float32):
+        
         self.n_units = n_units
         self.n_incoming = n_incoming
+        self.N = N
         w = np.random.normal(0,init_sd,(self.n_incoming,self.n_units))
         b = np.random.normal(0,init_sd,(1,n_units))
         
         self.weights = gpuarray.to_gpu(w.copy().astype(precision))
         self.gW = gpuarray.empty_like(self.weights)
+        
+        # Prior and ID must be set after creation
+        self.prior = -1
+        self.ID = -1
                 
         self.biases = gpuarray.to_gpu(b.copy().astype(precision))
         self.gB = gpuarray.empty_like(self.biases)
-        self.prior = prior
             
         #Set up momentum variables for HMC sampler
         self.pW = gpuarray.to_gpu(np.random.normal(0,1,self.gW.shape))
         self.pB = gpuarray.to_gpu(np.random.normal(0,1,self.gB.shape))
         
-        self.N = N
         self.precision = precision
         self.outputs = gpuarray.zeros((self.N,self.n_units),precision)   
         
+        #Define sigmoid function on GPU      
+        self.sigmoid = ElementwiseKernel(
+            "float *x",
+            "x[i] = 1/(1+expf(-x[i]));",
+            "sigmoid",preamble="#include <math.h>")
+        #Compile kernels 
         kernels = SourceModule(open(path+'/kernels.cu', "r").read())        
         self.add_bias_kernel = kernels.get_function("add_bias")
         
@@ -658,6 +668,9 @@ class Rectified_Linear_Layer(Layer):
         ##Initialize posterior weights
         self.posterior_weights = list()
         self.posterior_biases = list()
+    
+    def setPrior(self,prior):
+        self.prior = prior
     
     def setWeights(self,new_weights):
         self.weights = new_weights
@@ -670,7 +683,6 @@ class Rectified_Linear_Layer(Layer):
             print '' 
             t0 =  t.time()
             t_run = t.time()
-        
         back_prop = bp_signal*self.outputs*(1-self.outputs)
         if print_timing:
             t_bp = t.time() - t_run
@@ -705,13 +717,35 @@ class Rectified_Linear_Layer(Layer):
             return linalg.dot(back_prop,gpuarray.to_gpu(self.weights.get().T.copy()))
             #return linalg.dot(back_prop,linalg.transpose(self.weights))
         else:
-            return -1               
+            return -1            
+    
+    def updateGradient_CPU(self,bp_signal,inputs,print_timing=False):
+        
+        if print_timing:
+            t0 =  t.time()
+        back_prop = linalg.multiply(bp_signal,linalg.multiply(self.outputs,(1-self.outputs)))
+        self.gW = linalg.dot(linalg.transpose(inputs),back_prop)
+        ones = gpuarray.to_gpu(np.ones((1,self.N)).astype(self.precision))
+        self.gB = linalg.dot(ones,back_prop)
+        if print_timing:
+            t1 = t.time()
+            t0_prior = t.time()
+        self.prior.updateWeightGradient(self.weights,self.gW)
+        self.prior.updateBiasGradient(self.biases,self.gB)
+        if print_timing:
+            t1_prior = t.time()
+            print 'Time for gradient update in hidden layer ' + str(self.ID) + ' '  + str(t1-t0)
+            print 'Time for prior update in softmax layer ' + str(self.ID) + ' '  + str(t1_prior - t0_prior)
+        if self.ID > 0:
+            return linalg.dot(back_prop,self.weights,transb='T')
+        else:
+            return -1            
     
     def updateOutputs(self,inputs):
         self.outputs = linalg.dot(inputs,self.weights)
         #Add bias to gpuarray
         self.add_bias(self.outputs,self.biases)
-        
+        #Perform sigmoid transformation        
         self.sigmoid(self.outputs)
     
     def initializeMomentum(self,sd=1.0):

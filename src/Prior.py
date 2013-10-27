@@ -272,16 +272,8 @@ class Gaussian_Layer_Prior(Prior):
         val += (np.log(1/(np.sqrt(2*np.pi*sB))) - b**2/(2.0*sB)).sum()
         return val
     
-    def scaleMomentum(self,pW,pB):
-        grid1 = (pW.shape[1]+32-1)/32
-        grid2 = (pW.shape[0]+32-1)/32
-        M = np.int32(pW.shape[0])       
-        N = np.int32(pW.shape[1])
-        self.scale_momentum_kernel(pW,self.sW,M,N,block=(32,32,1),grid=(grid1,grid2)) 
+    def scaleMomentum(self,pW,pB): pass
+        ## do nothing here
         
-        grid1 = (pB.shape[1]+32-1)/32
-        grid2 = (pB.shape[0]+32-1)/32
-        M = np.int32(pB.shape[0])       
-        N = np.int32(pB.shape[1])
-        self.scale_momentum_kernel(pB,self.sB,M,N,block=(32,32,1),grid=(grid1,grid2)) 
+    
 

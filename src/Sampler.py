@@ -221,6 +221,10 @@ class HMC_sampler:
     def HMC_sample(self,L,eps,always_accept=False,T=1.0,verbose=False):
         self.net.feed_forward()        
         self.net.init_all_momentum()
+        if self.scale:
+            for i in range(0,len(self.net.layers)):
+                layer = self.net.layers[i]                
+                layer.scaleMomentum()
         init_ll = self.net.log_like_val()
         current_k = self.net.get_total_k()
         current_u = self.net.posterior_kernel_val()
@@ -231,14 +235,14 @@ class HMC_sampler:
         ##take an initial half-step
         for i in range(0,len(self.net.layers)):
             layer = self.net.layers[i]
-            if self.scale:
-                layer.scaleMomentum()
+            #if self.scale:
+                #layer.scaleMomentum()
             layer.pW += eps*(layer.gW/2.0)
             layer.pB += eps*(layer.gB/2.0)
         
         for step in range(0,L):
             #Update the parameters
-            self.net.updateAllHyperParams()
+            #self.net.updateAllHyperParams()
             for i in range(0,len(self.net.layers)):
                 layer = self.net.layers[i]
                 layer.weights += eps*layer.pW
@@ -252,7 +256,7 @@ class HMC_sampler:
                     layer.pW += eps*layer.gW
                     layer.pB += eps*layer.gB            
         
-        self.net.updateAllHyperParams()
+        #self.net.updateAllHyperParams()
         self.net.feed_forward()
         self.net.updateAllGradients()
         ##take a final half-step

@@ -79,12 +79,13 @@ __global__ void add_bias_grad(float *gradB, float* biases, float *sig2, int M, i
 //Scale momentum variables using current sd for ARD prior
 __global__ void scale_momentum_ARD(float* p, float *sig2, int M, int N)
 {
+        #include <math.h>
         int row = blockIdx.y*blockDim.y + threadIdx.y;
         int col = blockIdx.x*blockDim.x + threadIdx.x;
         int index = row*N + col;
                 
         if(row < M && col < N) {
-	        p[index] = p[index]*(sig2[row]);          
+	        p[index] = p[index]*sqrt(sig2[row]);          
         }                        
 }     
 
@@ -99,3 +100,5 @@ __global__ void scale_momentum_normal_unit(float* p, float *sig2, int M, int N)
 	        p[index] = p[index]*(sig2[col]);          
         }                        
 }
+
+

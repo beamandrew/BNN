@@ -118,6 +118,10 @@ class ARD_Prior(Prior):
         M = np.int32(pB.shape[0])       
         N = np.int32(pB.shape[1])
         self.scale_momentum_kernel(pB,self.sB,M,N,block=(32,32,1),grid=(grid1,grid2)) 
+    
+    def getWeightSigmaMatrix(self,weights):
+        sW = np.tile(self.sW.get(),(weights.shape[1],1)).T
+        return sW
         
 class Gaussian_Unit_Prior(Prior):
     def __init__(self,shape,scale,layer,precision=np.float32):
@@ -183,7 +187,7 @@ class Gaussian_Unit_Prior(Prior):
         val = (np.log(1/(np.sqrt(2*np.pi*sW))) - w**2/(2.0*sW)).sum()
         val += (np.log(1/(np.sqrt(2*np.pi*sB))) - b**2/(2.0*sB)).sum()
         return val
-    
+        
     def scaleMomentum(self,pW,pB):
         grid1 = (pW.shape[1]+32-1)/32
         grid2 = (pW.shape[0]+32-1)/32

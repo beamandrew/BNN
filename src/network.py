@@ -17,6 +17,8 @@ from pycuda import gpuarray
 import pycuda.autoinit
 from pycuda.compiler import SourceModule
 import pycuda.cumath as cumath
+import matplotlib
+import matplotlib.pyplot as plt
 
 import scikits.cuda.linalg as linalg
 import scikits.cuda.misc as cumisc
@@ -164,3 +166,99 @@ class BNN:
         (free,total)=cuda.mem_get_info()
         print("Global memory occupancy:%f%% free"%(free*100/total))    
     
+    def plotCurrentWeights(self,layerID,absval=False,scale=False):
+        l = self.layers[layerID]
+        data = l.weights.get().T
+        if absval:
+            data = np.abs(data)
+        if scale:
+            prior = l.prior
+            data = data/prior.getWeightSigmaMatrix(data)
+        
+        
+        x_labels = np.linspace(1,data.shape[1],data.shape[1]).astype(np.int32)
+        y_labels = np.linspace(1,data.shape[0],data.shape[0]).astype(np.int32)
+        
+        fig, ax = plt.subplots()
+        heatmap = ax.pcolor(data, cmap=plt.cm.Blues)
+        
+        # put the major ticks at the middle of each cell
+        ax.set_xticks(np.arange(data.shape[1])+0.5, minor=False)
+        ax.set_yticks(np.arange(data.shape[0])+0.5, minor=False)
+        
+        # want a more natural, table-like display
+        ax.invert_yaxis()
+        #ax.xaxis.tick_top()
+        
+        ax.set_xticklabels(x_labels, minor=False)
+        ax.set_yticklabels(y_labels, minor=False)
+        
+        plt.xticks(rotation=90)
+        
+        plt.show()
+    
+    def plotPosteriorWeights(self,layerID,absval=False,scale=False):
+        l = self.layers[layerID]
+        data = np.zeros(l.weights.get().T.shape)
+        for i in range(0,len(l.posterior_weights)):
+            data += l.posterior_weights[i].T
+        data = data/len(l.posterior_weights)
+        if absval:
+            data = np.abs(data)
+        if scale:
+            prior = l.prior
+            data = data/prior.getWeightSigmaMatrix(data)
+        
+        
+        x_labels = np.linspace(1,data.shape[1],data.shape[1]).astype(np.int32)
+        y_labels = np.linspace(1,data.shape[0],data.shape[0]).astype(np.int32)
+        
+        fig, ax = plt.subplots()
+        heatmap = ax.pcolor(data, cmap=plt.cm.Blues)
+        
+        # put the major ticks at the middle of each cell
+        ax.set_xticks(np.arange(data.shape[1])+0.5, minor=False)
+        ax.set_yticks(np.arange(data.shape[0])+0.5, minor=False)
+        
+        # want a more natural, table-like display
+        ax.invert_yaxis()
+        #ax.xaxis.tick_top()
+        
+        ax.set_xticklabels(x_labels, minor=False)
+        ax.set_yticklabels(y_labels, minor=False)
+        
+        plt.xticks(rotation=90)
+        
+        plt.show()
+    
+    
+    def plotCurrentGradients(self,layerID,absval=False,scale=False):
+        l = self.layers[layerID]
+        data = l.gW.get().T
+        if absval:
+            data = np.abs(data)
+        if scale:
+            prior = l.prior
+            data = data/prior.getWeightSigmaMatrix(data)
+        
+        
+        x_labels = np.linspace(1,data.shape[1],data.shape[1]).astype(np.int32)
+        y_labels = np.linspace(1,data.shape[0],data.shape[0]).astype(np.int32)
+        
+        fig, ax = plt.subplots()
+        heatmap = ax.pcolor(data, cmap=plt.cm.Blues)
+        
+        # put the major ticks at the middle of each cell
+        ax.set_xticks(np.arange(data.shape[1])+0.5, minor=False)
+        ax.set_yticks(np.arange(data.shape[0])+0.5, minor=False)
+        
+        # want a more natural, table-like display
+        ax.invert_yaxis()
+        #ax.xaxis.tick_top()
+        
+        ax.set_xticklabels(x_labels, minor=False)
+        ax.set_yticklabels(y_labels, minor=False)
+        
+        plt.xticks(rotation=90)
+        
+        plt.show()

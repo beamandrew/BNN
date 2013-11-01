@@ -37,14 +37,14 @@ class Prior:
     
 
 class ARD_Prior(Prior):
-    def __init__(self,shape,scale,layer,precision=np.float32):
+    def __init__(self,shape,scale,layer,precision=np.float32,init=100):
         self.precision = precision
         self.shape = shape
         self.scale = scale
         
         ##initialize with random draw
         #init_var = invgamma.rvs(shape,scale=scale,size=(1,layer.weights.shape[0])).astype(precision)
-        init_var = (np.tile(100,reps=layer.weights.shape[0]).reshape(1,layer.weights.shape[0])).astype(precision)
+        init_var = (np.tile(init,reps=layer.weights.shape[0]).reshape(1,layer.weights.shape[0])).astype(precision)
         self.sW = gpuarray.to_gpu(init_var)
         
         init_var = invgamma.rvs(1.0,scale=1.0,size=(1,1)).astype(precision)

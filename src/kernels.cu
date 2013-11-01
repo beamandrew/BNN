@@ -42,6 +42,20 @@ __global__ void add_ARD_grad(float *gradW, float* weights, float *sig2, int M, i
         }                        
 }
 
+//Add prior contribution to gradient with sigma integrated out
+__global__ void add_ARD_grad_ALT(float *gradW, float* weights, float shape, float scale, float Nw, float wSS,
+                                    int M, int N)
+{
+        int row = blockIdx.y*blockDim.y + threadIdx.y;
+        int col = blockIdx.x*blockDim.x + threadIdx.x;
+        int index = row*N + col;
+                
+        if(row < M && col < N) {
+	        gradW[index] -= weights[index]*(shape*Nw + 2*scale)/(scale*wSS);          
+        }                        
+}
+
+
 //Add prior contribution to gradient
 __global__ void add_gaussian_layer_grad(float *gradW, float* weights, float *sig2, int M, int N)
 {

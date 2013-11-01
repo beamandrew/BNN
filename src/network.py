@@ -146,10 +146,12 @@ class BNN:
         return val            
     
     #Initialize network with maximum-likelihood estimates
-    def initialize(self,iters=100,verbose=True,step_size=1e-3):
+    def initialize(self,iters=100,verbose=True,step_size=1e-3,include_prior=False):
         self.feed_forward()
         for i in range(0,iters):
-            self.updateAllGradients(include_prior=False)
+            if include_prior:
+                self.updateAllHyperParams()
+            self.updateAllGradients(include_prior=include_prior)
             for j in range(0,self.num_layers):
                 layer = self.layers[j]
                 layer.weights += step_size*layer.gW

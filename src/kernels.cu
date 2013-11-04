@@ -99,9 +99,53 @@ __global__ void scale_momentum_ARD(float* p, float *sig2, int M, int N)
         int index = row*N + col;
                 
         if(row < M && col < N) {
-	        p[index] = p[index]*sqrt(sig2[row]);          
+             float val = p[index]*sqrt(sig2[row]);
+	        p[index] = val > 10 ? 10 : val;          
         }                        
 }     
+
+//Scale momentum variables using current sd for ARD prior
+__global__ void scale_stepsize_ARD(float* epsW, float *sig2, int M, int N)
+{
+        #include <math.h>
+        int row = blockIdx.y*blockDim.y + threadIdx.y;
+        int col = blockIdx.x*blockDim.x + threadIdx.x;
+        int index = row*N + col;
+                
+        if(row < M && col < N) {
+             float val = epsW[index]*sqrt(sig2[row]);
+	        epsW[index] =  val > 10 ? 10 : val;          
+        }                        
+}     
+
+//Scale momentum variables using current sd for ARD prior
+__global__ void scale_momentum_Gaussian_Layer(float* p, float *sig2, int M, int N)
+{
+        #include <math.h>
+        int row = blockIdx.y*blockDim.y + threadIdx.y;
+        int col = blockIdx.x*blockDim.x + threadIdx.x;
+        int index = row*N + col;
+                
+        if(row < M && col < N) {
+             float val = p[index]*sqrt(sig2[0]);
+	        p[index] = val > 10 ? 10 : val;          
+        }                        
+}     
+
+//Scale momentum variables using current sd for ARD prior
+__global__ void scale_stepsize_Gaussian_Layer(float* epsW, float *sig2, int M, int N)
+{
+        #include <math.h>
+        int row = blockIdx.y*blockDim.y + threadIdx.y;
+        int col = blockIdx.x*blockDim.x + threadIdx.x;
+        int index = row*N + col;
+                
+        if(row < M && col < N) {
+              float val = epsW[index]*sqrt(sig2[0]);
+	        epsW[index] = val > 10 ? 10 : val;                
+        }                        
+}    
+
 
 //Scale momentum variables using current sd for normal unit prior
 __global__ void scale_momentum_normal_unit(float* p, float *sig2, int M, int N)
@@ -111,8 +155,8 @@ __global__ void scale_momentum_normal_unit(float* p, float *sig2, int M, int N)
         int index = row*N + col;
                 
         if(row < M && col < N) {
-	        p[index] = p[index]*(sig2[col]);          
+              float val = p[index]*(sig2[col]);
+	        p[index] = val > 10 ? 10 : val;                
         }                        
 }
-
 

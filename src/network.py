@@ -84,7 +84,7 @@ class BNN:
     
     ## MUST CALL FEED_FORWARD BEFORE USING THIS FUNCTION
     def log_like_val(self):
-        return self.layers[-1].get_log_like_val(self.Y)
+        return np.min((self.layers[-1].get_log_like_val(self.Y),10^20))
     
     ### THIS IS WRONG ROUNDING DOES NOT DO THE RIGHT THING
     def predict(self,_newX,_newY,predict_class=True):
@@ -143,26 +143,38 @@ class BNN:
             l = self.layers[i]            
             val += l.prior.getPriorDensityValue(l.weights,l.biases)
         val += self.log_like_val()
-        return val            
+        return np.min( (val,10^20) )
     
     #Initialize network with maximum-likelihood estimates
-    def initialize(self,iters=100,verbose=True,step_size=1e-3,include_prior=False):
+    def initialize(self,iters=100,verbose=True,step_size=1e-3,target_acc=1.0,include_prior=False):
         self.feed_forward()
-        for i in range(0,iters):
+        done = False
+        i = 1
+        while not done:
             if include_prior:
                 self.updateAllHyperParams()
+            
+            self.feed_forward()
             self.updateAllGradients(include_prior=include_prior)
             for j in range(0,self.num_layers):
                 layer = self.layers[j]
                 layer.weights += step_size*layer.gW
                 layer.biases += step_size*layer.gB
-            self.feed_forward()
+            
             if np.mod(i,100) == 0:
                 if verbose:
                     print 'Iteration: ' + str(i)
                     print 'Log-liklihood value: ' + str(self.log_like_val())
+                    print 'Posterior value: ' + str(self.posterior_kernel_val())
                     print 'Current accuracy: ' + str(self.getTrainAccuracy())
             
+            if (i > iters) or (self.getTrainAccuracy() > target_acc):
+                done = True
+            i += 1
+        
+        print 'Final Log-liklihood value: ' + str(self.log_like_val())
+        print 'Final Posterior value: ' + str(self.posterior_kernel_val())
+        print 'Final accuracy: ' + str(self.getTrainAccuracy())
     
     def getMemoryStatus(self):
         (free,total)=cuda.mem_get_info()
@@ -196,7 +208,25 @@ class BNN:
         ax.set_yticklabels(y_labels, minor=False)
         
         plt.xticks(rotation=90)
+        plt.ion()
+        plt.show()
         
+    def plotWeightTraceForVariable(self,varID):
+        layer = self.layers[0]
+        data = np.zeros(shape=(layer.weights.shape[1],len(layer.posterior_weights)))
+        plot_rows = np.ceil(data.shape[0]/2).astype(int)
+        for unit in range(0,data.shape[0]):
+            for j in range(0,len(layer.posterior_weights)):
+                data[unit,j] = layer.posterior_weights[j][varID-1,unit]
+        
+        fig, axarr = plt.subplots(nrows=plot_rows,ncols=2)
+        index = 0
+        for i in range(0,plot_rows):
+            for j in range(0,2):
+                axarr[i,j].plot(data[index])
+                index += 1
+                axarr[i,j].set_title('Unit ' + str(index))
+        plt.ion()
         plt.show()
     
     def plotPosteriorWeights(self,layerID,absval=False,scale=False):
@@ -230,7 +260,7 @@ class BNN:
         ax.set_yticklabels(y_labels, minor=False)
         
         plt.xticks(rotation=90)
-        
+        plt.ion()
         plt.show()
     
     
@@ -262,5 +292,5 @@ class BNN:
         ax.set_yticklabels(y_labels, minor=False)
         
         plt.xticks(rotation=90)
-        
+        plt.ion()
         plt.show()

@@ -66,6 +66,9 @@ class Layer:
     def scaleMomentum(self): pass
 
     @abstractmethod 
+    def scaleStepSize(self): pass
+
+    @abstractmethod 
     def setPrior(self): pass
     
     @abstractmethod
@@ -100,6 +103,10 @@ class Softmax_Layer(Layer):
         self.pW = gpuarray.to_gpu(np.random.normal(0,1,self.gW.shape))
         self.pB = gpuarray.to_gpu(np.random.normal(0,1,self.gB.shape))    
         
+        #Store stepsizes for each parameter
+        self.epsW = gpuarray.zeros(self.weights.shape,precision) + 1.0
+        self.epsB = gpuarray.zeros(self.biases.shape,precision) + 1.0
+        
         self.n_classes = n_classes
         self.n_incoming = n_incoming
         
@@ -117,6 +124,8 @@ class Softmax_Layer(Layer):
         ##Initialize posterior weights
         self.posterior_weights = list()
         self.posterior_biases = list()
+        
+        self.eps_tol = 1e-10
         
     def setPrior(self,prior):
         self.prior = prior
@@ -136,7 +145,7 @@ class Softmax_Layer(Layer):
         self.softmax_kernel(output, M, N, block=(1,32,1),grid=( 1,grid2) )    
     
     def get_log_like_val(self,Y):
-        return (gpuarray.sum( (cumath.log(self.outputs)*Y) )).get()    
+        return np.min( ((gpuarray.sum( (cumath.log(self.outputs+self.eps_tol)*Y) )).get(), 10^20 ) )    
     
     ## Updates the gradient information for all of the parameters in this layer.
     ## Returns the back-prop signal to be sent to the next layer
@@ -227,11 +236,14 @@ class Softmax_Layer(Layer):
         self.posterior_biases.append(new_sample)
     
     def getTotalKineticEnergy(self):
-        return (self.pW.get()**2).sum()/2.0 + (self.pB.get()**2).sum()/2.0
+        return (self.pW.get()**2).sum() + (self.pB.get()**2).sum()
     
     def scaleMomentum(self):
         self.prior.scaleMomentum(self.pW,self.pB)
-
+    
+    def scaleStepSize(self):
+        self.prior.scaleStepSize(self.epsW,self.epsB)
+    
 class Gaussian_Layer(Layer):
     def __init__(self,n_outputs,n_incoming,N,prior,init_sd=0.1,precision=np.float32):
         self.n_outputs = n_outputs
@@ -271,7 +283,7 @@ class Gaussian_Layer(Layer):
     
     def get_log_like_val(self,Y):
         prod = Y*self.outputs
-        return gpuarray.sum(prod).get()
+        return np.min( (gpuarray.sum(prod).get(), 10^20) )
     
     
     ## Updates the gradient information for all of the parameters in this layer.
@@ -341,10 +353,13 @@ class Gaussian_Layer(Layer):
         self.posterior_biases.append(new_sample)
     
     def getTotalKineticEnergy(self):
-        return (self.pW.get()**2).sum()/2.0 + (self.pB.get()**2).sum()/2.0
+        return (self.pW.get()**2).sum() + (self.pB.get()**2).sum()
     
     def scaleMomentum(self):
         self.prior.scaleMomentum(self.pW,self.pB)
+    
+    def scaleStepSize(self):
+        self.prior.scaleStepSize(self.epsW,self.epsB)
 
         
 class Sigmoid_Layer(Layer):
@@ -370,6 +385,9 @@ class Sigmoid_Layer(Layer):
         self.pW = gpuarray.to_gpu(np.random.normal(0,1,self.gW.shape))
         self.pB = gpuarray.to_gpu(np.random.normal(0,1,self.gB.shape))
         
+        self.epsW = gpuarray.zeros(self.weights.shape,precision) + 1.0
+        self.epsB = gpuarray.zeros(self.biases.shape,precision) + 1.0
+    
         self.precision = precision
         self.outputs = gpuarray.zeros((self.N,self.n_units),precision)   
         
@@ -489,34 +507,40 @@ class Sigmoid_Layer(Layer):
         return self.n_units
     
     def getTotalKineticEnergy(self):
-        return (self.pW.get()**2).sum()/2.0 + (self.pB.get()**2).sum()/2.0
+        return (self.pW.get()**2).sum() + (self.pB.get()**2).sum()
 
     def scaleMomentum(self):
         self.prior.scaleMomentum(self.pW,self.pB)
+    
+    def scaleStepSize(self):
+        self.prior.scaleStepSize(self.epsW,self.epsB)    
     
     def get_log_like_val(self,Y):
         raise NotImplementedError 
 
 class Tanh_Layer(Layer):
-    def __init__(self,n_units,n_incoming,N,prior,ID,init_sd=1.0,magic_numbers=True,precision=np.float32):
-        self.ID = ID
+    def __init__(self,n_units,n_incoming,N,init_sd=1.0,precision=np.float32,magic_numbers=False):
+        
         self.n_units = n_units
         self.n_incoming = n_incoming
+        self.N = N
         w = np.random.normal(0,init_sd,(self.n_incoming,self.n_units))
         b = np.random.normal(0,init_sd,(1,n_units))
         
         self.weights = gpuarray.to_gpu(w.copy().astype(precision))
         self.gW = gpuarray.empty_like(self.weights)
+        
+        # Prior and ID must be set after creation
+        self.prior = -1
+        self.ID = -1
                 
         self.biases = gpuarray.to_gpu(b.copy().astype(precision))
         self.gB = gpuarray.empty_like(self.biases)
-        self.prior = prior
             
         #Set up momentum variables for HMC sampler
         self.pW = gpuarray.to_gpu(np.random.normal(0,1,self.gW.shape))
         self.pB = gpuarray.to_gpu(np.random.normal(0,1,self.gB.shape))
         
-        self.N = N
         self.precision = precision
         self.outputs = gpuarray.zeros((self.N,self.n_units),precision)   
         
@@ -541,6 +565,9 @@ class Tanh_Layer(Layer):
         ##Initialize posterior weights
         self.posterior_weights = list()
         self.posterior_biases = list()
+    
+    def setPrior(self,prior):
+        self.prior = prior
     
     def setWeights(self,new_weights):
         self.weights = new_weights
@@ -620,7 +647,7 @@ class Tanh_Layer(Layer):
         return self.n_units
     
     def getTotalKineticEnergy(self):
-        return (self.pW.get()**2).sum()/2.0 + (self.pB.get()**2).sum()/2.0
+        return (self.pW.get()**2).sum() + (self.pB.get()**2).sum()
     
     def scaleMomentum(self):
         self.prior.scaleMomentum(self.pW,self.pB)
@@ -768,7 +795,7 @@ class Rectified_Linear_Layer(Layer):
         return self.n_units
     
     def getTotalKineticEnergy(self):
-        return (self.pW.get()**2).sum()/2.0 + (self.pB.get()**2).sum()/2.0
+        return (self.pW.get()**2).sum() + (self.pB.get()**2).sum()
 
     def scaleMomentum(self):
         self.prior.scaleMomentum(self.pW,self.pB)

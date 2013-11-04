@@ -19,48 +19,9 @@ class HMC_sampler:
         self.accept = 0.0
         self.sim = 0.0
         self.log_alpha = 0.0
-        self.scale = scale
+        self.scale = scale   
     
-    def fixed_step_size_sim(self,n_keep,n_burnin,verbose=False):
-        n_sim = n_keep + n_burnin
-        self.sim = 0.0
-        while self.sim < n_sim:
-            self.sim += 1.0
-            if verbose:
-                print 'Iteration ' + str(self.sim)    
-            self.net.updateAllHyperParams()
-            self.HMC_sample(self.L,self.eps,verbose=verbose)
-            if self.sim > n_burnin:
-                ## Get the ARD variance params
-                self.posterior_sd.append(self.net.layers[0].prior.sW.get())
-                for i in range(0,self.net.num_layers):
-                    self.net.layers[i].addPosteriorWeightSample(self.net.layers[i].weights.get())
-                    self.net.layers[i].addPosteriorBiasSample(self.net.layers[i].biases.get())
-                
-    def initialize(self,iters=200,L_warmup=10,eps_warmup=1e-2,verbose=False):
-        for i in range(0,iters):
-            self.HMC_sample(L=L_warmup,eps=eps_warmup,verbose=verbose)
-        
-            
-    def fixed_L_random_eps_sim(self,n_keep,n_burnin,eps0=0.01,eta=1.0,verbose=False):
-        n_sim = n_keep + n_burnin
-        self.sim = 0.0
-        while self.sim < n_sim:
-            self.sim += 1.0
-            self.net.updateAllHyperParams()
-            eps_rand = np.exp(eta*np.random.standard_cauchy(1))*eps0
-            if verbose:
-                print 'Iteration ' + str(self.sim)
-                print 'eps: ' + str(np.float(eps_rand))
-            self.HMC_sample(self.L,np.float(eps_rand),verbose=verbose)
-            if self.sim > n_burnin:
-                ## Get the ARD variance params
-                self.posterior_sd.append(self.net.layers[0].prior.sW.get())
-                for i in range(0,self.net.num_layers):
-                    self.net.layers[i].addPosteriorWeightSample(self.net.layers[i].weights.get())
-                    self.net.layers[i].addPosteriorBiasSample(self.net.layers[i].biases.get())
-    
-    def simple_annealing_sim(self,n_keep,n_burnin,eta=0.95,eps_eta=0.99,T0=100,epsFinal=0.001,nu=1.0,epsDecay=False,verbose=False):
+    def simple_annealing_sim(self,n_keep,n_burnin,eta=0.95,T0=100,epsFinal=0.001,nu=1.0,var_refresh=1,verbose=False):
         n_sim = n_keep + n_burnin
         self.sim = 0.0
         T = T0
@@ -70,12 +31,12 @@ class HMC_sampler:
             if verbose:
                 print 'Iteration ' + str(self.sim)
                 print 'T: ' + str(np.float(T))
-                print 'eps: ' + str(np.float(eps))                
-            self.net.updateAllHyperParams()
+                print 'eps: ' + str(np.float(eps))  
+            if np.mod(self.sim,var_refresh) == 0:
+                self.net.updateAllHyperParams()
+                print 'Updating Hyper Parameters'
             self.HMC_sample(self.L,eps,T=T,verbose=verbose)
             T = np.max([eta*T,1.0])
-            if epsDecay:
-                eps = float(np.max([eps*eps_eta,epsFinal]))
             if self.sim > n_burnin:
                 ## Get the ARD variance params
                 self.posterior_sd.append(self.net.layers[0].prior.sW.get())
@@ -199,18 +160,21 @@ class HMC_sampler:
                 plt.title('Trace of posterior samples for feature ' + str(index+1))
                 plt.show()
     
-    def getFeatureRank(self,feature_ID):
+    def getFeatureRank(self,feature_ID,useMedian=True):
         P = self.net.layers[0].prior.sW.shape[1]
-        means = np.zeros(P)
+        summary = np.zeros(P)
         stds = np.zeros(P)
         for i in range(0,P):
             current_var = np.zeros(len(self.posterior_sd))
             for j in range(0,len(current_var)):
                 sample = self.posterior_sd[j][0,i]
                 current_var[j] = sample
-            means[i] = current_var.mean()
+            if useMedian:
+                summary[i] = np.median(current_var)
+            else:
+                summary[i] = current_var.mean()
             stds[i] = current_var.std()
-        args = means.argsort()
+        args = summary.argsort()
         rank = 1
         for i in range(1,len(args)+1):
             index = args[-i]
@@ -218,59 +182,53 @@ class HMC_sampler:
                 return rank
             rank = rank + 1
     
-    def HMC_sample(self,L,eps,always_accept=False,T=1.0,verbose=False):
+    def HMC_sample(self,L,eps,always_accept=False,T=1.0,verbose=False):        
+        
         self.net.feed_forward()        
         self.net.init_all_momentum()
         if self.scale:
             for i in range(0,len(self.net.layers)):
                 layer = self.net.layers[i]                
                 layer.scaleMomentum()
+                layer.scaleStepSize()
         init_ll = self.net.log_like_val()
-        current_k = self.net.get_total_k()
+        current_k = self.net.get_total_k()/2.0
         current_u = self.net.posterior_kernel_val()
         self.copy_params()
         
-        self.net.updateAllGradients()
-        #self.net.updateAllHyperParams()
-        ##take an initial half-step
-        for i in range(0,len(self.net.layers)):
-            layer = self.net.layers[i]
-            #if self.scale:
-                #layer.scaleMomentum()
-            layer.pW += eps*(layer.gW/2.0)
-            layer.pB += eps*(layer.gB/2.0)
-        
         for step in range(0,L):
-            #Update the parameters
-            #self.net.updateAllHyperParams()
-            for i in range(0,len(self.net.layers)):
-                layer = self.net.layers[i]
-                layer.weights += eps*layer.pW
-                layer.biases += eps*layer.pB
-           
-            if step != L:
+            for i in range(0,len(self.net.layers)):                
+                #Perform 1 leap-frog update
+                #Update outputs for each layer
                 self.net.feed_forward()
                 self.net.updateAllGradients()
-                for i in range(0,len(self.net.layers)):
-                    layer = self.net.layers[i]
-                    layer.pW += eps*layer.gW
-                    layer.pB += eps*layer.gB            
+                #take a half step for momentum
+                layer = self.net.layers[i]      
+                
+                epsW_component = eps*layer.epsW
+                epsB_component = eps*layer.epsB
+                
+                layer.pW = layer.pW + (epsW_component/2.0)*layer.gW
+                layer.pB = layer.pB + (epsB_component/2.0)*layer.gB                
+                
+                #take a full step for parameters
+                layer.weights += epsW_component*layer.pW
+                layer.biases += epsB_component*layer.pB
+                
+                #Update outputs for each layer
+                self.net.feed_forward()
+                self.net.updateAllGradients()
+                #take a final half step for momentum
+                layer.pW = layer.pW + (epsW_component/2.0)*layer.gW
+                layer.pB = layer.pB + (epsB_component/2.0)*layer.gB
+                
         
-        #self.net.updateAllHyperParams()
         self.net.feed_forward()
-        self.net.updateAllGradients()
-        ##take a final half-step
-        for i in range(0,len(self.net.layers)):
-            layer = self.net.layers[i]
-            layer.pW += eps*(layer.gW/2.0)
-            layer.pB += eps*(layer.gB/2.0)
-        
-        
+        self.net.updateAllGradients()        
         ##Calculate log_posterior value at current parameter estimates
-        self.net.feed_forward()
         proposed_u = self.net.posterior_kernel_val()
         #Divide by T in the case of SA
-        proposed_k = self.net.get_total_k()
+        proposed_k = self.net.get_total_k()/2.0
         
         diff = ((proposed_u-proposed_k) - (current_u-current_k))/T
         alpha = np.min([0,diff])

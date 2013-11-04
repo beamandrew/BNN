@@ -35,6 +35,9 @@ class Prior:
     @abstractmethod
     def scaleMomentum(self,pW,pB): pass
     
+    @abstractmethod
+    def scaleStepSize(self,epsW,epsB): pass
+    
 
 class ARD_Prior(Prior):
     def __init__(self,shape,scale,layer,precision=np.float32,init=100):
@@ -49,11 +52,11 @@ class ARD_Prior(Prior):
         
         init_var = invgamma.rvs(1.0,scale=1.0,size=(1,1)).astype(precision)
         self.sB = gpuarray.to_gpu(init_var)
-        kernels = SourceModule(open(path+'/kernels.cu', "r").read())        
+        kernels = SourceModule(open(path+'/kernels.cu', "r").read())
         self.add_prior_kernel = kernels.get_function("add_ARD_grad")
         self.add_prior_b_kernel = kernels.get_function("add_bias_grad")
         self.scale_momentum_kernel = kernels.get_function("scale_momentum_ARD")
-        
+        self.scale_stepsize_kernel = kernels.get_function("scale_stepsize_ARD")
         #self.updatePriorVals(layer.weights,layer.biases)
     
     def updateWeightGradient(self,weights,gW):
@@ -102,8 +105,8 @@ class ARD_Prior(Prior):
         b = biases.get()
         sW = np.tile(self.sW.get(),(weights.shape[1],1)).T
         sB = self.sB.get()
-        val = (np.log(1/(np.sqrt(2*np.pi*sW))) - w**2.0/(2.0*sW)).sum()
-        val += (np.log(1/(np.sqrt(2*np.pi*sB))) - b**2.0/(2.0*sB)).sum()
+        val = -1*(w**2.0/(2.0*sW)).sum()
+        val += -1*(b**2.0/(2.0*sB)).sum()
         return val
     
     def scaleMomentum(self,pW,pB):
@@ -118,6 +121,19 @@ class ARD_Prior(Prior):
         M = np.int32(pB.shape[0])       
         N = np.int32(pB.shape[1])
         self.scale_momentum_kernel(pB,self.sB,M,N,block=(32,32,1),grid=(grid1,grid2)) 
+    
+    def scaleStepSize(self,epsW,epsB):
+        grid1 = (epsW.shape[1]+32-1)/32
+        grid2 = (epsW.shape[0]+32-1)/32
+        M = np.int32(epsW.shape[0])       
+        N = np.int32(epsW.shape[1])
+        self.scale_stepsize_kernel(epsW,self.sW,M,N,block=(32,32,1),grid=(grid1,grid2)) 
+        
+        grid1 = (epsB.shape[1]+32-1)/32
+        grid2 = (epsB.shape[0]+32-1)/32
+        M = np.int32(epsB.shape[0])       
+        N = np.int32(epsB.shape[1])
+        self.scale_momentum_kernel(epsB,self.sB,M,N,block=(32,32,1),grid=(grid1,grid2)) 
     
     def getWeightSigmaMatrix(self,weights):
         sW = np.tile(self.sW.get(),(weights.shape[1],1)).T
@@ -184,10 +200,9 @@ class Gaussian_Unit_Prior(Prior):
         b = biases.get()
         sW = np.tile(self.sW.get(),(w.shape[0],1))
         sB = self.sB.get()
-        val = (np.log(1/(np.sqrt(2*np.pi*sW))) - w**2/(2.0*sW)).sum()
-        val += (np.log(1/(np.sqrt(2*np.pi*sB))) - b**2/(2.0*sB)).sum()
-        return val
-        
+        val = -1*(w**2/(2.0*sW)).sum()
+        val += -1*(b**2/(2.0*sB)).sum()
+            
     def scaleMomentum(self,pW,pB):
         grid1 = (pW.shape[1]+32-1)/32
         grid2 = (pW.shape[0]+32-1)/32
@@ -218,7 +233,8 @@ class Gaussian_Layer_Prior(Prior):
         kernels = SourceModule(open(path+'/kernels.cu', "r").read())        
         self.add_prior_w_kernel = kernels.get_function("add_gaussian_layer_grad")
         self.add_prior_b_kernel = kernels.get_function("add_bias_grad")
-        self.scale_momentum_kernel = kernels.get_function("scale_momentum_normal_unit")
+        self.scale_momentum_kernel = kernels.get_function("scale_momentum_Gaussian_Layer")
+        self.scale_stepsize_kernel = kernels.get_function("scale_stepsize_Gaussian_Layer")
                 
         ##initialize with random draw
         #self.updatePriorVals(layer.weights,layer.biases)
@@ -247,11 +263,6 @@ class Gaussian_Layer_Prior(Prior):
         n_w = np.float32(weights_cpu.shape[0]*weights_cpu.shape[1])
         shape_new = (self.shape + n_w)/2
         scale_new =  self.scale + (weights_cpu**2).sum()/2.0
-        #print 'New shape for feature ' + ': ' + str(shape_new)
-        #print 'New scale for feature ' + ': ' + str(scale_new)
-        #print 'Weights ' + ': ' + str((weights_cpu))        
-        #print 'W**2 ' + ': ' + str((weights_cpu**2))
-        #print 'Weight SS ' + ': ' + str((weights_cpu**2).sum())
         new_val = invgamma.rvs(shape_new,scale=scale_new,size=1)
         #print 'New standard deviation for feature ' + ': ' + str(new_val)
         new_sW = np.float32(new_val)
@@ -272,12 +283,35 @@ class Gaussian_Layer_Prior(Prior):
         sW = np.tile(self.sW.get(),w.shape)
         #print 'sW: ' + str(sW)
         sB = self.sB.get()
-        val = (np.log(1/(np.sqrt(2*np.pi*sW))) - w**2/(2.0*sW)).sum()        
-        val += (np.log(1/(np.sqrt(2*np.pi*sB))) - b**2/(2.0*sB)).sum()
-        return val
+        val = -1*(w**2.0/(2.0*sW)).sum()
+        val += -1*(b**2.0/(2.0*sB)).sum()
+        return np.min((val,10^20))
     
-    def scaleMomentum(self,pW,pB): pass
-        ## do nothing here
+    def scaleMomentum(self,pW,pB):
+        grid1 = (pW.shape[1]+32-1)/32
+        grid2 = (pW.shape[0]+32-1)/32
+        M = np.int32(pW.shape[0])       
+        N = np.int32(pW.shape[1])
+        self.scale_momentum_kernel(pW,self.sW,M,N,block=(32,32,1),grid=(grid1,grid2)) 
+        
+        grid1 = (pB.shape[1]+32-1)/32
+        grid2 = (pB.shape[0]+32-1)/32
+        M = np.int32(pB.shape[0])       
+        N = np.int32(pB.shape[1])
+        self.scale_momentum_kernel(pB,self.sB,M,N,block=(32,32,1),grid=(grid1,grid2)) 
+    
+    def scaleStepSize(self,epsW,epsB):
+        grid1 = (epsW.shape[1]+32-1)/32
+        grid2 = (epsW.shape[0]+32-1)/32
+        M = np.int32(epsW.shape[0])       
+        N = np.int32(epsW.shape[1])
+        self.scale_stepsize_kernel(epsW,self.sW,M,N,block=(32,32,1),grid=(grid1,grid2)) 
+        
+        grid1 = (epsB.shape[1]+32-1)/32
+        grid2 = (epsB.shape[0]+32-1)/32
+        M = np.int32(epsB.shape[0])       
+        N = np.int32(epsB.shape[1])
+        self.scale_momentum_kernel(epsB,self.sB,M,N,block=(32,32,1),grid=(grid1,grid2)) 
         
     
 

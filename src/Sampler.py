@@ -158,6 +158,7 @@ class HMC_sampler:
                 plt.subplot(212)
                 plt.plot(x,current_var)
                 plt.title('Trace of posterior samples for feature ' + str(index+1))
+                plt.ioff()
                 plt.show()
     
     def getFeatureRank(self,feature_ID,useMedian=True):
@@ -182,6 +183,18 @@ class HMC_sampler:
                 return rank
             rank = rank + 1
     
+    def getCredibleInterval(self,featureID,level=5):
+        P = self.net.layers[0].prior.sW.shape[1]
+        for i in range(0,P):
+            current_var = np.zeros(len(self.posterior_sd))
+            for j in range(0,len(current_var)):
+                sample = self.posterior_sd[j][0,featureID-1]
+                current_var[j] = sample
+        
+        interval = np.array([np.percentile(current_var,q=level/2.0), np.percentile(current_var,q=100.0-level/2.0)])   
+        return interval   
+                        
+            
     def HMC_sample(self,L,eps,always_accept=False,T=1.0,verbose=False):        
         
         self.net.feed_forward()        

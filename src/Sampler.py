@@ -16,12 +16,13 @@ class HMC_sampler:
         self.current_biases = list()
         self.posterior_weights = list()
         self.posterior_sd = list()
+        self.posterior_ARDMean = list()
         self.accept = 0.0
         self.sim = 0.0
         self.log_alpha = 0.0
         self.scale = scale   
     
-    def simple_annealing_sim(self,n_keep,n_burnin,eta=0.95,T0=100,epsFinal=0.001,nu=1.0,var_refresh=1,verbose=False):
+    def simple_annealing_sim(self,n_keep,n_burnin,eta=0.95,T0=100,persist=0.0,var_refresh=1,verbose=False):
         n_sim = n_keep + n_burnin
         self.sim = 0.0
         T = T0
@@ -35,11 +36,12 @@ class HMC_sampler:
             if np.mod(self.sim,var_refresh) == 0:
                 self.net.updateAllHyperParams()
                 print 'Updating Hyper Parameters'
-            self.HMC_sample(self.L,eps,T=T,verbose=verbose)
+            self.HMC_sample(self.L,eps,T=T,verbose=verbose,persist=persist)
             T = np.max([eta*T,1.0])
             if self.sim > n_burnin:
                 ## Get the ARD variance params
                 self.posterior_sd.append(self.net.layers[0].prior.sW.get())
+                self.posterior_ARDMean.append(self.net.layers[0].prior.mean.get())
                 for i in range(0,self.net.num_layers):
                     self.net.layers[i].addPosteriorWeightSample(self.net.layers[i].weights.get())
                     self.net.layers[i].addPosteriorBiasSample(self.net.layers[i].biases.get())
@@ -114,15 +116,45 @@ class HMC_sampler:
     def copy_params(self):
         self.current_weights = list()
         self.current_biases = list()
+        self.current_pW = list()
+        self.current_pB = list()
         for i in range(0,len(self.net.layers)):
             self.current_weights.append(self.net.layers[i].weights.copy())
             self.current_biases.append(self.net.layers[i].biases.copy())
+            self.current_pW.append(self.net.layers[i].pW.copy())
+            self.current_pB.append(self.net.layers[i].pB.copy())
     
     def restore_params(self):
         for i in range(0,len(self.net.layers)):            
             self.net.layers[i].setWeights(self.current_weights[i])
             self.net.layers[i].setBiases(self.current_biases[i])
-    
+            
+            self.net.layers[i].pW = self.current_pW[i]
+            self.net.layers[i].pB = self.current_pB[i]
+
+    def negateMomenta(self):
+        for i in range(0,len(self.net.layers)):            
+            self.net.layers[i].pW = -1*self.current_pW[i]
+            self.net.layers[i].pB = -1*self.current_pB[i]
+
+    def plotARD(self,featureID,useMedian=False):
+        P = self.net.layers[0].prior.sW.shape[1]
+        for i in range(0,P):
+            current_var = np.zeros(len(self.posterior_sd))
+            for j in range(0,len(current_var)):
+                sample = self.posterior_sd[j][0,featureID-1]
+                current_var[j] = sample
+        
+        plt.subplot(211)
+        plt.hist(current_var,bins=25,normed=True)
+        plt.title('Histogram of posterior samples for feature ' + str(featureID+1))
+        
+        x = np.linspace(1,len(current_var),len(current_var))
+        plt.subplot(212)
+        plt.plot(x,current_var)
+        plt.title('Trace of posterior samples for feature ' + str(featureID+1))
+        plt.ion()
+        plt.show()  
     
     def getARDSummary(self,plot=0,useMedian=False):
         P = self.net.layers[0].prior.sW.shape[1]
@@ -183,7 +215,7 @@ class HMC_sampler:
                 return rank
             rank = rank + 1
     
-    def getCredibleInterval(self,featureID,level=5):
+    def getCredibleInterval(self,featureID,level=95):
         P = self.net.layers[0].prior.sW.shape[1]
         for i in range(0,P):
             current_var = np.zeros(len(self.posterior_sd))
@@ -191,14 +223,61 @@ class HMC_sampler:
                 sample = self.posterior_sd[j][0,featureID-1]
                 current_var[j] = sample
         
-        interval = np.array([np.percentile(current_var,q=level/2.0), np.percentile(current_var,q=100.0-level/2.0)])   
+        interval = np.array([np.percentile(current_var,q=(100.0-level)/2.0), 
+                             np.percentile(current_var,q=100.0-(level/2.0))])   
         return interval   
-                        
+    
+    def testMeanAgainstNull(self,featureID,verbose=True):
+        num_units =  self.net.layers[0].n_units        
+        
+        mean_null = 1.0
+        
+        n_samples = len(self.posterior_ARDMean)
+        num_hit = 0.0
+        for i in range(0,n_samples):           
+            sample = self.posterior_ARDMean[i][0,featureID-1]
+            if( sample > mean_null ):
+                num_hit += 1.0
+        
+        p = np.float(num_hit)/np.float(n_samples)
+        if verbose:
+            print 'Probability the ARD mean for feature ' + str(featureID) + ' is greater than mean null of 1: ' + str(p)
+        return p
+        
+    
+    def getHit(self,featureID,level=95,verbose=False):
+        prior = self.net.layers[0].prior
+        P = prior.sW.shape[1]
+        for i in range(0,P):
+            current_var = np.zeros(len(self.posterior_sd))
+            for j in range(0,len(current_var)):
+                sample = self.posterior_sd[j][0,featureID-1]
+                current_var[j] = sample
+        quantile = (100.0-level)/2.0
+        interval = np.array([np.percentile(current_var,q=quantile), 
+                             np.percentile(current_var,q=(level+quantile))])   
+
+        num_units =  self.net.layers[0].n_units
+        
+        adjustment = num_units*2.0
+        shape_null = prior.shape + num_units/2.0
+        scale_null = prior.scale + adjustment
+        mean_null = scale_null/(shape_null-1)
+        hit = False
+        if interval[0] > mean_null:
+            hit = True
+        
+        if verbose:
+            print 'Feature ' + str(featureID) + ' is a hit? ' + str(hit)
+            print 'Mean under null: ' + str(mean_null)
+            print str(level) + '% credible interval: [' + str(interval[0]) + ',' + str(interval[1]) + ']'             
+        return hit   
+    
             
-    def HMC_sample(self,L,eps,always_accept=False,T=1.0,verbose=False):        
+    def HMC_sample(self,L,eps,persist=0.0,T=1.0,verbose=False):        
         
         self.net.feed_forward()        
-        self.net.init_all_momentum()
+        self.net.update_all_momenta(persist)
         if self.scale:
             for i in range(0,len(self.net.layers)):
                 layer = self.net.layers[i]                
@@ -210,6 +289,7 @@ class HMC_sampler:
         self.copy_params()
         
         for step in range(0,L):
+            self.net.updateAllHyperParams()
             for i in range(0,len(self.net.layers)):                
                 #Perform 1 leap-frog update
                 #Update outputs for each layer
@@ -253,8 +333,9 @@ class HMC_sampler:
             self.accept += 1.0
         else:
             msg = 'Reject!'
-            if not always_accept:
-                self.restore_params()        
+            self.restore_params()       
+        if persist > 0:
+            self.negateMomenta()
         if verbose:
                 print '----------------------------'
                 print 'Current U: ' + str(current_u)

@@ -57,7 +57,7 @@ class Layer:
     def getBiases(self): pass
     
     @abstractmethod
-    def initializeMomentum(self,sd=1.0): pass
+    def updateMomenta(self,persist=0.0): pass
     
     @abstractmethod
     def getTotalKineticEnergy(self): pass
@@ -187,7 +187,7 @@ class Softmax_Layer(Layer):
         return linalg.dot(diff,self.weights,transb='T')
         #return linalg.dot(diff,linalg.transpose(self.weights))
     
-    def initializeMomentum(self,sd=1.0):
+    def updateMomenta(self,persist=0.0):
         self.rng.fill_normal(self.pW)
         self.rng.fill_normal(self.pB)
     
@@ -288,7 +288,7 @@ class Gaussian_Layer(Layer):
     
     ## Updates the gradient information for all of the parameters in this layer.
     ## Returns the back-prop signal to be sent to the next layer
-    def updateGradient(self,Y,inputs,print_timing=False):
+    def updateGradient(self,Y,inputs,print_timing=False,include_prior=True):
         if print_timing:
             t0 =  t.time()
             t_run = t.time()
@@ -313,8 +313,12 @@ class Gaussian_Layer(Layer):
         if print_timing:
             t1 = t.time()
             t0_prior = t.time()
-        self.prior.updateWeightGradient(self.weights,self.gW)
-        self.prior.updateBiasGradient(self.biases,self.gB)
+        if include_prior:
+            self.prior.updateWeightGradient(self.weights,self.gW)
+            if print_timing:
+                t_weights = t.time() - t_run
+                t_run = t.time()
+            self.prior.updateBiasGradient(self.biases,self.gB)
         if print_timing:
             t1_prior = t.time()
             print 'Total time for gradient update in softmax layer ' + str(t1-t0)
@@ -326,9 +330,16 @@ class Gaussian_Layer(Layer):
         return linalg.dot(diff,self.weights,transb='T')
         #return linalg.dot(diff,linalg.transpose(self.weights))
     
-    def initializeMomentum(self,sd=1.0):
-        self.rng.fill_normal(self.pW)
-        self.rng.fill_normal(self.pB)
+    def updateMomenta(self,persist=0.0):
+        loc_pW = self.pW.get()*persist
+        loc_pW = (loc_pW + np.sqrt((1-persist**2))*np.random.normal(size=loc_pW.shape)).astype(self.precision)
+        
+        self.pW = gpuarray.to_gpu(loc_pW)
+        #self.rng.fill_normal(self.pW)
+        
+        loc_pB = self.pB.get()*persist
+        loc_pB = (loc_pB + np.sqrt((1-persist**2))*np.random.normal(size=loc_pB.shape)).astype(self.precision)
+        self.pB = gpuarray.to_gpu(loc_pB)
               
     
     def setWeights(self,new_weights):
@@ -394,7 +405,7 @@ class Sigmoid_Layer(Layer):
         #Define sigmoid function on GPU      
         self.sigmoid = ElementwiseKernel(
             "float *x",
-            "x[i] = 1/(1+expf(-x[i]));",
+            "x[i] = 1/(1+expf(-1*min(max(-10.0,x[i]),20.0)))",
             "sigmoid",preamble="#include <math.h>")
         #Compile kernels 
         kernels = SourceModule(open(path+'/kernels.cu', "r").read())        
@@ -487,10 +498,17 @@ class Sigmoid_Layer(Layer):
         #Perform sigmoid transformation        
         self.sigmoid(self.outputs)
     
-    def initializeMomentum(self,sd=1.0):
-        self.rng.fill_normal(self.pW)
-        self.rng.fill_normal(self.pB)
-    
+    def updateMomenta(self,persist=0.0):
+        loc_pW = self.pW.get()*persist
+        loc_pW = (loc_pW + np.sqrt((1.0-persist**2))*np.random.normal(size=loc_pW.shape)).astype(self.precision)
+        
+        self.pW = gpuarray.to_gpu(loc_pW)
+        #self.rng.fill_normal(self.pW)
+        
+        loc_pB = self.pB.get()*persist
+        loc_pB = (loc_pB + np.sqrt((1.0-persist**2))*np.random.normal(size=loc_pB.shape)).astype(self.precision)
+        self.pB = gpuarray.to_gpu(loc_pB)    
+        
     def getWeights(self):
         return self.weights
     
@@ -541,6 +559,9 @@ class Tanh_Layer(Layer):
         self.pW = gpuarray.to_gpu(np.random.normal(0,1,self.gW.shape))
         self.pB = gpuarray.to_gpu(np.random.normal(0,1,self.gB.shape))
         
+        self.epsW = gpuarray.zeros(self.weights.shape,precision) + 1.0
+        self.epsB = gpuarray.zeros(self.biases.shape,precision) + 1.0        
+        
         self.precision = precision
         self.outputs = gpuarray.zeros((self.N,self.n_units),precision)   
         
@@ -549,12 +570,12 @@ class Tanh_Layer(Layer):
         if magic_numbers:
             self.tanh = ElementwiseKernel(
                 "float *x",
-                "x[i] = 1.7159*(expf(4/3*x[i]) - 1)/(expf(4/3*x[i]) + 1);",
+                "x[i] = 1.7159 * tanh(2/3*x[i]);",
                 "tan_h",preamble="#include <math.h>")
         else:
             self.tanh = ElementwiseKernel(
             "float *x",
-            "x[i] = (expf(2*x[i]) - 1)/(expf(2*x[i]) + 1);",
+            "x[i] = tanh(min(max(-10.0,x[i]),10.0));",
             "tan_h",preamble="#include <math.h>")
         #Compile kernels 
         kernels = SourceModule(open(path+'/kernels.cu', "r").read())        
@@ -575,13 +596,13 @@ class Tanh_Layer(Layer):
     def setBiases(self,new_biases):
         self.biases = new_biases
         
-    def updateGradient(self,bp_signal,inputs,print_timing=False):
+    def updateGradient(self,bp_signal,inputs,print_timing=False,include_prior=True):
         if print_timing:
             print '' 
             t0 =  t.time()
             t_run = t.time()
         if self.magic_numbers:
-            back_prop = bp_signal* 1.14393 * (1.0 - (self.outputs/1.7159)*(self.outputs/1.7159))
+            back_prop = bp_signal* 0.6667/1.7159 * (1.7159 - (self.outputs)*(1.7159 + self.outputs))
         else:
             back_prop = bp_signal*(1.0-(self.outputs*self.outputs))
         
@@ -601,11 +622,12 @@ class Tanh_Layer(Layer):
         if print_timing:
             t_biases = t.time() - t_run
             t_run = t.time()
-        self.prior.updateWeightGradient(self.weights,self.gW)
-        if print_timing:
-            t_weights = t.time() - t_run
-            t_run = t.time()
-        self.prior.updateBiasGradient(self.biases,self.gB)
+        if include_prior:
+            self.prior.updateWeightGradient(self.weights,self.gW)
+            if print_timing:
+                t_weights = t.time() - t_run
+                t_run = t.time()
+            self.prior.updateBiasGradient(self.biases,self.gB)
         if print_timing:
             t_prior = t.time() - t_run
             print 'Total time for gradient update in hidden layer ' + str(self.ID) + ' '  + str(t.time()-t0)
@@ -627,9 +649,16 @@ class Tanh_Layer(Layer):
         #Perform sigmoid transformation        
         self.tanh(self.outputs)
     
-    def initializeMomentum(self,sd=1.0):
-        self.rng.fill_normal(self.pW)
-        self.rng.fill_normal(self.pB)
+    def updateMomenta(self,persist=0.0):
+        loc_pW = self.pW.get()*persist
+        loc_pW = (loc_pW + np.sqrt((1.0-persist**2))*np.random.normal(size=loc_pW.shape)).astype(self.precision)
+        
+        self.pW = gpuarray.to_gpu(loc_pW)
+        #self.rng.fill_normal(self.pW)
+        
+        loc_pB = self.pB.get()*persist
+        loc_pB = (loc_pB + np.sqrt((1.0-persist**2))*np.random.normal(size=loc_pB.shape)).astype(self.precision)
+        self.pB = gpuarray.to_gpu(loc_pB) 
     
     def getWeights(self):
         return self.weights
@@ -654,6 +683,9 @@ class Tanh_Layer(Layer):
     
     def get_log_like_val(self,Y):
         raise NotImplementedError 
+    
+    def scaleStepSize(self):
+        self.prior.scaleStepSize(self.epsW,self.epsB)    
 
 class Rectified_Linear_Layer(Layer):
     def __init__(self,n_units,n_incoming,N,init_sd=1.0,precision=np.float32):
@@ -682,9 +714,9 @@ class Rectified_Linear_Layer(Layer):
         self.outputs = gpuarray.zeros((self.N,self.n_units),precision)   
         
         #Define sigmoid function on GPU      
-        self.sigmoid = ElementwiseKernel(
+        self.rect = ElementwiseKernel(
             "float *x",
-            "x[i] = 1/(1+expf(-x[i]));",
+            "x[i] = max(0,x[i]);",
             "sigmoid",preamble="#include <math.h>")
         #Compile kernels 
         kernels = SourceModule(open(path+'/kernels.cu', "r").read())        
@@ -775,8 +807,13 @@ class Rectified_Linear_Layer(Layer):
         #Perform sigmoid transformation        
         self.sigmoid(self.outputs)
     
-    def initializeMomentum(self,sd=1.0):
-        self.rng.fill_normal(self.pW)
+    def updateMomenta(self,persist=0.0):
+        loc_pW = self.pW.get()*persist
+        for i in range(0,len(loc_pW)):
+            loc_pW[i] = loc_pW[i] + np.sqrt((1-persist**2))*np.random.normal(size=(1,loc_pW.shape[1]))
+        
+        self.pW = gpuarray.to_gpu(loc_pW)
+        #self.rng.fill_normal(self.pW)
         self.rng.fill_normal(self.pB)
     
     def getWeights(self):

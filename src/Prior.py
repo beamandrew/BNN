@@ -49,6 +49,8 @@ class ARD_Prior(Prior):
         #init_var = invgamma.rvs(shape,scale=scale,size=(1,layer.weights.shape[0])).astype(precision)
         init_var = (np.tile(init,reps=layer.weights.shape[0]).reshape(1,layer.weights.shape[0])).astype(precision)
         self.sW = gpuarray.to_gpu(init_var)
+        init_mean = (np.tile(self.scale/(self.shape-1),reps=layer.weights.shape[0]).reshape(1,layer.weights.shape[0])).astype(precision)
+        self.mean = gpuarray.to_gpu(init_mean)
         
         init_var = invgamma.rvs(1.0,scale=1.0,size=(1,1)).astype(precision)
         self.sB = gpuarray.to_gpu(init_var)
@@ -78,23 +80,25 @@ class ARD_Prior(Prior):
     ##Perform a Gibbs update of prior vals
     def updatePriorVals(self,weights,biases): 
         new_sW = np.zeros(self.sW.shape)
+        new_mean = np.zeros(self.mean.shape)
         weights_cpu = weights.get()
         n_w = np.float32(weights_cpu.shape[1])
-        shape_new = (self.shape + n_w)/2.0
+        shape_new = self.shape + n_w/2.0
         for i in range(0,len(weights_cpu)):
             scale_new =  self.scale + ((weights_cpu[i])**2).sum()/2.0
             new_val = invgamma.rvs(shape_new,scale=scale_new,size=1)
             new_sW[0,i] = np.float32(new_val)
+            new_mean[0,i] = np.float32(scale_new/(shape_new-1))
             #print 'New shape for feature ' + str(i+1) + ': ' + str(shape_new)
             #print 'New scale for feature ' + str(i+1) + ': ' + str(1.0/rate_new)
             #print 'New standard deviation for feature ' + str(i+1) + ': ' + str(new_val)
         
         self.sW = gpuarray.to_gpu(new_sW.astype(self.precision))
-        
+        self.mean = gpuarray.to_gpu(new_mean.astype(self.precision))
         ## Biases have common variance
         biases_cpu = biases.get()
         n_b = np.float32(biases.shape[1])
-        shape_new = (self.shape + n_b)/2
+        shape_new = self.shape + n_b/2.0
         scale_new =  self.scale  + ((biases_cpu)**2).sum()/2.0
         new_val = invgamma.rvs(shape_new,scale=scale_new,size=1)
         new_sB = np.float32(new_val)
@@ -179,7 +183,7 @@ class Gaussian_Unit_Prior(Prior):
         new_sW = np.zeros(self.sW.shape)
         weights_cpu = weights.get()
         n_w = np.float32(weights_cpu.shape[0])
-        shape_new = (self.shape + n_w)/2
+        shape_new = self.shape + n_w/2.0
         for i in range(0,weights_cpu.shape[1]):
             scale_new =  self.scale + ((weights_cpu[:,i])**2).sum()/2.0
             new_val = invgamma.rvs(shape_new,scale=scale_new,size=1)
@@ -189,7 +193,7 @@ class Gaussian_Unit_Prior(Prior):
          ## Biases have common variance
         biases_cpu = biases.get()
         n_b = np.float32(biases.shape[1])
-        shape_new = (self.shape + n_b)/2
+        shape_new = self.shape + n_b/2.0
         scale_new =  self.scale + ((biases_cpu)**2).sum()/2.0
         new_val = invgamma.rvs(shape_new,scale=scale_new,size=1)
         new_sB = np.float32(new_val)
@@ -261,7 +265,7 @@ class Gaussian_Layer_Prior(Prior):
         new_sW = np.zeros(self.sW.shape)
         weights_cpu = weights.get()
         n_w = np.float32(weights_cpu.shape[0]*weights_cpu.shape[1])
-        shape_new = (self.shape + n_w)/2
+        shape_new = self.shape + n_w/2.0
         scale_new =  self.scale + (weights_cpu**2).sum()/2.0
         new_val = invgamma.rvs(shape_new,scale=scale_new,size=1)
         #print 'New standard deviation for feature ' + ': ' + str(new_val)
@@ -271,7 +275,7 @@ class Gaussian_Layer_Prior(Prior):
          ## Biases have common variance
         biases_cpu = biases.get()
         n_b = np.float32(biases.shape[1])
-        shape_new = (self.shape + n_b)/2
+        shape_new = self.shape + n_b/2.0
         scale_new =  self.scale + ((biases_cpu)**2).sum()/2.0
         new_val = invgamma.rvs(shape_new,scale=scale_new,size=1)
         new_sB = np.float32(new_val)

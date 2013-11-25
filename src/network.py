@@ -29,6 +29,7 @@ class BNN:
         self.X = gpuarray.to_gpu(X.astype(precision).copy())
         self.Y = gpuarray.to_gpu(Y.astype(precision).copy())
         self.precision = precision
+        self.num_preds = X.shape[1]
                 
         #Compile kernels 
         kernels = SourceModule(open(path+'/kernels.cu', "r").read())
@@ -58,9 +59,9 @@ class BNN:
             else:
                 bp = l.updateGradient(bp,self.X,print_timing)
     
-    def init_all_momentum(self):       
+    def update_all_momenta(self,persist=0.0):       
         for i in range(0,(len(self.layers))):
-            self.layers[i].initializeMomentum()
+            self.layers[i].updateMomenta(persist)
     
     def get_total_k(self):    
         k = 0.0
@@ -168,7 +169,7 @@ class BNN:
                     print 'Posterior value: ' + str(self.posterior_kernel_val())
                     print 'Current accuracy: ' + str(self.getTrainAccuracy())
             
-            if (i > iters) or (self.getTrainAccuracy() > target_acc):
+            if (i > iters) or (self.getTrainAccuracy() >= target_acc):
                 done = True
             i += 1
         
@@ -228,6 +229,15 @@ class BNN:
                 axarr[i,j].set_title('Unit ' + str(index))
         plt.ion()
         plt.show()
+    
+    def getSamplesForVariable(self,featureID,layerID=0):
+        layer = self.layers[layerID]
+        data = np.zeros(shape=(layer.weights.shape[1],len(layer.posterior_weights)))
+        for unit in range(0,data.shape[0]):
+            for j in range(0,len(layer.posterior_weights)):
+                data[unit,j] = layer.posterior_weights[j][featureID-1,unit]
+        
+        return data
     
     def plotPosteriorWeights(self,layerID,absval=False,scale=False):
         l = self.layers[layerID]

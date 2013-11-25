@@ -160,3 +160,16 @@ __global__ void scale_momentum_normal_unit(float* p, float *sig2, int M, int N)
         }                        
 }
 
+__global__ void rect_grad(float* back_prop_signal, float *h, int M, int N)
+{
+        int row = blockIdx.y*blockDim.y + threadIdx.y;
+        int col = blockIdx.x*blockDim.x + threadIdx.x;
+        int index = row*N + col;
+                
+        if(row < M && col < N) {
+              if(h[index] == 0.0) {
+                back_prop_signal[index] = 0;
+              }                
+        }                        
+}
+

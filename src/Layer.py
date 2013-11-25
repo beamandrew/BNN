@@ -694,7 +694,7 @@ class Rectified_Linear_Layer(Layer):
         self.n_incoming = n_incoming
         self.N = N
         w = np.random.normal(0,init_sd,(self.n_incoming,self.n_units))
-        b = np.random.normal(0,init_sd,(1,n_units))
+        b = np.random.uniform(0,1,(1,n_units))
         
         self.weights = gpuarray.to_gpu(w.copy().astype(precision))
         self.gW = gpuarray.empty_like(self.weights)
@@ -710,17 +710,21 @@ class Rectified_Linear_Layer(Layer):
         self.pW = gpuarray.to_gpu(np.random.normal(0,1,self.gW.shape))
         self.pB = gpuarray.to_gpu(np.random.normal(0,1,self.gB.shape))
         
+        self.epsW = gpuarray.zeros(self.weights.shape,precision) + 1.0
+        self.epsB = gpuarray.zeros(self.biases.shape,precision) + 1.0
+    
         self.precision = precision
         self.outputs = gpuarray.zeros((self.N,self.n_units),precision)   
         
         #Define sigmoid function on GPU      
-        self.rect = ElementwiseKernel(
+        self.rectifier = ElementwiseKernel(
             "float *x",
-            "x[i] = max(0,x[i]);",
-            "sigmoid",preamble="#include <math.h>")
+            "x[i] = max(0.0,x[i])",
+            "rect",preamble="#include <math.h>")
         #Compile kernels 
         kernels = SourceModule(open(path+'/kernels.cu', "r").read())        
         self.add_bias_kernel = kernels.get_function("add_bias")
+        self.rect_kernel = kernels.get_function("rect_grad")
         
         self.rng = curandom.XORWOWRandomNumberGenerator()
         
@@ -737,12 +741,13 @@ class Rectified_Linear_Layer(Layer):
     def setBiases(self,new_biases):
         self.biases = new_biases
         
-    def updateGradient(self,bp_signal,inputs,print_timing=False):
+    def updateGradient(self,bp_signal,inputs,print_timing=False,include_prior=True):
         if print_timing:
             print '' 
             t0 =  t.time()
             t_run = t.time()
-        back_prop = bp_signal*self.outputs*(1-self.outputs)
+        
+        back_prop = self.rect_grad(bp_signal)
         if print_timing:
             t_bp = t.time() - t_run
             t_run = t.time()
@@ -759,11 +764,12 @@ class Rectified_Linear_Layer(Layer):
         if print_timing:
             t_biases = t.time() - t_run
             t_run = t.time()
-        self.prior.updateWeightGradient(self.weights,self.gW)
-        if print_timing:
-            t_weights = t.time() - t_run
-            t_run = t.time()
-        self.prior.updateBiasGradient(self.biases,self.gB)
+        if include_prior:
+            self.prior.updateWeightGradient(self.weights,self.gW)
+            if print_timing:
+                t_weights = t.time() - t_run
+                t_run = t.time()
+            self.prior.updateBiasGradient(self.biases,self.gB)
         if print_timing:
             t_prior = t.time() - t_run
             print 'Total time for gradient update in hidden layer ' + str(self.ID) + ' '  + str(t.time()-t0)
@@ -776,46 +782,26 @@ class Rectified_Linear_Layer(Layer):
             return linalg.dot(back_prop,gpuarray.to_gpu(self.weights.get().T.copy()))
             #return linalg.dot(back_prop,linalg.transpose(self.weights))
         else:
-            return -1            
-    
-    def updateGradient_CPU(self,bp_signal,inputs,print_timing=False):
-        
-        if print_timing:
-            t0 =  t.time()
-        back_prop = linalg.multiply(bp_signal,linalg.multiply(self.outputs,(1-self.outputs)))
-        self.gW = linalg.dot(linalg.transpose(inputs),back_prop)
-        ones = gpuarray.to_gpu(np.ones((1,self.N)).astype(self.precision))
-        self.gB = linalg.dot(ones,back_prop)
-        if print_timing:
-            t1 = t.time()
-            t0_prior = t.time()
-        self.prior.updateWeightGradient(self.weights,self.gW)
-        self.prior.updateBiasGradient(self.biases,self.gB)
-        if print_timing:
-            t1_prior = t.time()
-            print 'Time for gradient update in hidden layer ' + str(self.ID) + ' '  + str(t1-t0)
-            print 'Time for prior update in softmax layer ' + str(self.ID) + ' '  + str(t1_prior - t0_prior)
-        if self.ID > 0:
-            return linalg.dot(back_prop,self.weights,transb='T')
-        else:
-            return -1            
+            return -1
     
     def updateOutputs(self,inputs):
         self.outputs = linalg.dot(inputs,self.weights)
         #Add bias to gpuarray
         self.add_bias(self.outputs,self.biases)
-        #Perform sigmoid transformation        
-        self.sigmoid(self.outputs)
+        #Perform linear rectifier transformation        
+        self.rectifier(self.outputs)
     
     def updateMomenta(self,persist=0.0):
         loc_pW = self.pW.get()*persist
-        for i in range(0,len(loc_pW)):
-            loc_pW[i] = loc_pW[i] + np.sqrt((1-persist**2))*np.random.normal(size=(1,loc_pW.shape[1]))
+        loc_pW = (loc_pW + np.sqrt((1.0-persist**2))*np.random.normal(size=loc_pW.shape)).astype(self.precision)
         
         self.pW = gpuarray.to_gpu(loc_pW)
         #self.rng.fill_normal(self.pW)
-        self.rng.fill_normal(self.pB)
-    
+        
+        loc_pB = self.pB.get()*persist
+        loc_pB = (loc_pB + np.sqrt((1.0-persist**2))*np.random.normal(size=loc_pB.shape)).astype(self.precision)
+        self.pB = gpuarray.to_gpu(loc_pB)    
+        
     def getWeights(self):
         return self.weights
     
@@ -836,6 +822,19 @@ class Rectified_Linear_Layer(Layer):
 
     def scaleMomentum(self):
         self.prior.scaleMomentum(self.pW,self.pB)
+    
+    def scaleStepSize(self):
+        self.prior.scaleStepSize(self.epsW,self.epsB)    
+    
+    # Multiply by rectifier gradient mask on GPU #
+    def rect_grad(self,back_prop_signal):
+        grid1 = (back_prop_signal.shape[1]+32-1)/32
+        grid2 = (back_prop_signal.shape[0]+32-1)/32
+        M = np.int32(back_prop_signal.shape[0])       
+        N = np.int32(back_prop_signal.shape[1])
+        #Adds bias to output gpuarray object        
+        self.rect_kernel(back_prop_signal, self.outputs, M, N, block=(32,32,1),grid=( grid1,grid2) )   
+        return back_prop_signal
     
     def get_log_like_val(self,Y):
         raise NotImplementedError 

@@ -748,6 +748,7 @@ class Rectified_Linear_Layer(Layer):
             t_run = t.time()
         
         back_prop = self.rect_grad(bp_signal)
+        back_prop = bp_signal
         if print_timing:
             t_bp = t.time() - t_run
             t_run = t.time()

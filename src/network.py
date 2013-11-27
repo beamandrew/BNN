@@ -45,9 +45,9 @@ class BNN:
             ID += 1
         self.num_layers = len(self.layers)
     
-    ## MUST CALL FEED_FORWARD BEFORE USING THIS FUNCTION
     def updateAllGradients(self,print_timing=False,include_prior=True):
         ##Compute gradient and do back-prop
+        self.feed_forward()
         top_layer = self.layers[-1]
         bp = top_layer.updateGradient(self.Y,self.layers[-2].outputs,print_timing)
         layer_ids = np.linspace(len(self.layers)-2,0, len(self.layers)-1)

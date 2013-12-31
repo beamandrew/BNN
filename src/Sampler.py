@@ -35,7 +35,8 @@ class HMC_sampler:
                 print 'eps: ' + str(np.float(eps))  
             if np.mod(self.sim,var_refresh) == 0:
                 self.net.updateAllHyperParams()
-                print 'Updating Hyper Parameters'
+                if verbose:
+                    print 'Updating Hyper Parameters'
             self.HMC_sample(self.L,eps,T=T,verbose=verbose,persist=persist)
             T = np.max([eta*T,1.0])
             if self.sim > n_burnin:

@@ -193,6 +193,65 @@ class HMC_sampler:
                 plt.ioff()
                 plt.show()
     
+    def getARDPosteriorMeanSummary(self,plot=0,useMedian=False):
+        P = self.net.layers[0].prior.sW.shape[1]
+        summary = np.zeros(P)
+        stds = np.zeros(P)
+        for i in range(0,P):
+            current_var = np.zeros(len(self.posterior_ARDMean))
+            for j in range(0,len(current_var)):
+                sample = self.posterior_ARDMean[j][0,i]
+                current_var[j] = sample
+            if useMedian:
+                summary[i] = np.median(current_var)
+            else:
+                summary[i] = current_var.mean()
+            stds[i] = current_var.std()
+        args = summary.argsort()
+        for i in range(1,len(args)+1):
+            index = args[-i]
+            if useMedian:
+                print 'Median of Posterior ARD Mean samples for feature ' + str(index+1) + ' is ' +str(summary[index])
+            else:
+                print 'Average of Posterior ARD Mean samples for feature ' + str(index+1) + ' is ' +str(summary[index])
+            if(plot ==1):
+                current_var = np.zeros(len(self.posterior_ARDMean))
+                for j in range(0,len(current_var)):
+                    sample = self.posterior_ARDMean[j][0,index]
+                    current_var[j] = sample  
+                plt.subplot(211)
+                plt.hist(current_var,bins=20,normed=True)
+                plt.title('Histogram of posterior samples for feature ' + str(index+1))
+                
+                x = np.linspace(1,len(current_var),len(current_var))
+                plt.subplot(212)
+                plt.plot(x,current_var)
+                plt.title('Trace of posterior samples for feature ' + str(index+1))
+                plt.ioff()
+                plt.show()
+    
+    def getFeatureRankByARDMean(self,feature_ID,useMedian=True):
+        P = self.net.layers[0].prior.sW.shape[1]
+        summary = np.zeros(P)
+        stds = np.zeros(P)
+        for i in range(0,P):
+            current_var = np.zeros(len(self.posterior_ARDMean))
+            for j in range(0,len(current_var)):
+                sample = self.posterior_ARDMean[j][0,i]
+                current_var[j] = sample
+            if useMedian:
+                summary[i] = np.median(current_var)
+            else:
+                summary[i] = current_var.mean()
+            stds[i] = current_var.std()
+        args = summary.argsort()
+        rank = 1
+        for i in range(1,len(args)+1):
+            index = args[-i]
+            if index == (feature_ID-1):
+                return rank
+            rank = rank + 1
+    
     def getFeatureRank(self,feature_ID,useMedian=True):
         P = self.net.layers[0].prior.sW.shape[1]
         summary = np.zeros(P)

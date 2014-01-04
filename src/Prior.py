@@ -88,7 +88,7 @@ class ARD_Prior(Prior):
             scale_new =  self.scale + ((weights_cpu[i])**2).sum()/2.0
             new_val = invgamma.rvs(shape_new,scale=scale_new,size=1)
             new_sW[0,i] = np.float32(new_val)
-            new_mean[0,i] = np.float32(scale_new/(shape_new-1))
+            new_mean[0,i] = np.float32(scale_new/(shape_new-1.0))
             #print 'New shape for feature ' + str(i+1) + ': ' + str(shape_new)
             #print 'New scale for feature ' + str(i+1) + ': ' + str(1.0/rate_new)
             #print 'New standard deviation for feature ' + str(i+1) + ': ' + str(new_val)

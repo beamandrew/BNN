@@ -290,7 +290,7 @@ class HMC_sampler:
     def testMeanAgainstNull(self,featureID,verbose=True):
         num_units =  self.net.layers[0].n_units        
         
-        mean_null = 1.0
+        mean_null = self.net.layers[0].prior.scale/(self.net.layers[0].prior.shape-1)
         
         n_samples = len(self.posterior_ARDMean)
         num_hit = 0.0
@@ -301,7 +301,7 @@ class HMC_sampler:
         
         p = np.float(num_hit)/np.float(n_samples)
         if verbose:
-            print 'Probability the ARD mean for feature ' + str(featureID) + ' is greater than mean null of 1: ' + str(p)
+            print 'Probability the ARD mean for feature ' + str(featureID) + ' is greater than mean null of '+str(mean_null)+':' + str(p)
         return p
         
     

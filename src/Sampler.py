@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 class HMC_sampler:
-    def __init__(self,net,L,eps,scale=False):
+    def __init__(self,net,L,eps,scale=False,debug=False,track_vars=list()):
         self.L = L
         self.eps = eps
         self.net = net
@@ -21,6 +21,43 @@ class HMC_sampler:
         self.sim = 0.0
         self.log_alpha = 0.0
         self.scale = scale   
+        self.track_vars = track_vars
+        self.track_ranks = list()
+        self.track_pvals = list()
+        self.debug = debug
+        
+    def track(self):
+        ranks = np.zeros(shape=(len(self.track_vars)))
+        pvals = np.zeros(shape=(len(self.track_vars)))
+        for i in range(len(self.track_vars)):
+            pvals[i] = 1.0-self.testMeanAgainstNull(self.track_vars[i],verbose=False)
+            ranks[i] = self.getFeatureRankByARDMean(self.track_vars[i])
+        
+        self.track_ranks.append(ranks)
+        self.track_pvals.append(pvals)
+    
+    def plot_debug(self):
+        
+        for i in range(len(self.track_vars)):
+            rank = np.zeros(len(self.track_ranks))
+            
+            for j in range(len(self.track_ranks)):
+                rank[j] = self.track_ranks[j][i]
+            
+            pval = np.zeros(len(self.track_pvals))
+            for j in range(len(self.track_pvals)):
+                pval[j] = self.track_pvals[j][i]
+                
+            x = np.linspace(1,len(self.track_ranks),len(self.track_ranks))
+            plt.subplot(211)
+            plt.plot(x,rank)
+            plt.title('Rank for variable ' + str(self.track_vars[i]))
+            
+            x = np.linspace(1,len(pval),len(pval))
+            plt.subplot(212)
+            plt.plot(x,pval)
+            plt.title('P-value ' + str(self.track_vars[i]))
+            plt.show()  
     
     def simple_annealing_sim(self,n_keep,n_burnin,eta=0.95,T0=100,persist=0.0,var_refresh=1,verbose=False):
         n_sim = n_keep + n_burnin
@@ -40,6 +77,8 @@ class HMC_sampler:
             self.HMC_sample(self.L,eps,T=T,verbose=verbose,persist=persist)
             T = np.max([eta*T,1.0])
             if self.sim > n_burnin:
+                if self.debug and len(self.posterior_ARDMean) > 1:
+                    self.track()
                 ## Get the ARD variance params
                 self.posterior_sd.append(self.net.layers[0].prior.sW.get())
                 self.posterior_ARDMean.append(self.net.layers[0].prior.mean.get())

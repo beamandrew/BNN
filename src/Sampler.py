@@ -436,6 +436,9 @@ class HMC_sampler:
         if persist > 0:
             self.negateMomenta()
         if verbose:
+                metric = 'accuracy'
+                if self.net.layers[-1].type == 'Gaussian':
+                    metric = 'RMSE'
                 print '----------------------------'
                 print 'Current U: ' + str(current_u)
                 print 'Proposed U: ' + str(proposed_u)      
@@ -446,7 +449,7 @@ class HMC_sampler:
                 print 'Proposed log-like: ' + str(self.net.log_like_val())
                 print 'Comparing alpha of: ' + str(alpha) + ' to uniform of: ' + str(u)
                 print msg
-                print 'Current accuracy on training set: ' + str(self.net.getTrainAccuracy())
+                print 'Current '+metric+' on training set: ' + str(self.net.getTrainAccuracy())
                 print 'Acceptance rate: ' + str(self.accept/np.float(self.sim))
                 print '----------------------------'
             

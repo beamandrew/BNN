@@ -35,7 +35,6 @@ class BNN:
         kernels = SourceModule(open(path+'/kernels.cu', "r").read())
         
         self.layers = layers
-        self.n_classes = Y.shape[1]
         self.N = len(X)
         
         ID = 0
@@ -85,7 +84,7 @@ class BNN:
     
     ## MUST CALL FEED_FORWARD BEFORE USING THIS FUNCTION
     def log_like_val(self):
-        return np.min((self.layers[-1].get_log_like_val(self.Y),10^20))
+        return np.min((self.layers[-1].get_log_like_val(self.Y),10**20))
     
     ### THIS IS WRONG ROUNDING DOES NOT DO THE RIGHT THING
     def predict(self,_newX,_newY,predict_class=True):
@@ -126,15 +125,7 @@ class BNN:
     
     def getTrainAccuracy(self):
         self.feed_forward()
-        accuracy = 0.0
-        #if self.layer_types[-1] == 'softmax':
-        preds = (self.layers[-1].outputs.get())
-        Y_cpu = self.Y.get()
-        errors = 0.0
-        for i in range(0,len(preds)):
-            errors += 1.0-Y_cpu[i,preds[i].argmax()]    
-        accuracy = 1.0 - errors/len(preds)
-        
+        accuracy = self.layers[-1].getTrainAccuracy(self.Y)        
         return accuracy
     
     ## MUST CALL FEED_FORWARD BEFORE USING THIS FUNCTION
@@ -144,7 +135,7 @@ class BNN:
             l = self.layers[i]            
             val += l.prior.getPriorDensityValue(l.weights,l.biases)
         val += self.log_like_val()
-        return np.min( (val,10^20) )
+        return np.min( (val,10**20) )
     
     #Initialize network with maximum-likelihood estimates
     def initialize(self,iters=100,verbose=True,step_size=1e-3,target_acc=1.0,include_prior=False):

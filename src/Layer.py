@@ -85,6 +85,7 @@ class Layer:
 
 class Softmax_Layer(Layer):
     def __init__(self,n_classes,n_incoming,N,init_sd=0.1,precision=np.float32):
+        self.type = 'Softmax'
         self.n_incoming = n_incoming
         self.N = N
         w = np.random.normal(0,init_sd,(self.n_incoming,n_classes))
@@ -145,7 +146,7 @@ class Softmax_Layer(Layer):
         self.softmax_kernel(output, M, N, block=(1,32,1),grid=( 1,grid2) )    
     
     def get_log_like_val(self,Y):
-        return np.min( ((gpuarray.sum( (cumath.log(self.outputs+self.eps_tol)*Y) )).get(), 10^20 ) )    
+        return np.min( ((gpuarray.sum( (cumath.log(self.outputs+self.eps_tol)*Y) )).get(), 10**20 ) )    
     
     ## Updates the gradient information for all of the parameters in this layer.
     ## Returns the back-prop signal to be sent to the next layer
@@ -191,29 +192,6 @@ class Softmax_Layer(Layer):
         self.rng.fill_normal(self.pW)
         self.rng.fill_normal(self.pB)
     
-    ##Compute gradient on CPU
-    ## Used to check for possible loss of precision on GPU
-    def updateGradient_CPU(self,Y,inputs,print_timing=False):
-        if print_timing:
-            t0 =  t.time()
-        Y_cpu = Y.get().astype(np.float64)
-        outputs_cpu = (self.outputs.get()).astype(np.float64)
-        inputs_cpu = (inputs.get()).astype(np.float64)
-        weights_cpu = (self.weights.get()).astype(np.float64)
- 
-        diff = Y_cpu - outputs_cpu
-        gW_cpu = np.dot(np.transpose(inputs_cpu),diff)
-        gB_cpu = diff.sum(axis=0)
-        if print_timing:
-            t1 = t.time()
-            print 'Time for gradient update in softmax layer ' + str(t1-t0)
-        bp_signal = np.dot(diff,np.transpose(weights_cpu))               
-        grad = list()
-        grad.append(gW_cpu)
-        grad.append(gB_cpu)
-        grad.append(bp_signal)
-        return grad              
-    
     def setWeights(self,new_weights):
         self.weights = new_weights
         
@@ -244,10 +222,23 @@ class Softmax_Layer(Layer):
     def scaleStepSize(self):
         self.prior.scaleStepSize(self.epsW,self.epsB)
     
+    def getTrainAccuracy(self,Y):
+        accuracy = 0.0
+        #if self.layer_types[-1] == 'softmax':
+        preds = (self.outputs.get())
+        Y_cpu = Y.get()
+        errors = 0.0
+        for i in range(0,len(preds)):
+            errors += 1.0-Y_cpu[i,preds[i].argmax()]    
+        accuracy = 1.0 - errors/len(preds)
+        return accuracy
+    
 class Gaussian_Layer(Layer):
-    def __init__(self,n_outputs,n_incoming,N,prior,init_sd=0.1,precision=np.float32):
+    def __init__(self,n_outputs,n_incoming,N,init_sd=0.1,precision=np.float32):
+        self.type = 'Gaussian'
         self.n_outputs = n_outputs
         self.n_incoming = n_incoming
+        self.N = N
         w = np.random.normal(0,init_sd,(self.n_incoming,self.n_outputs))
         b = np.random.normal(0,init_sd,(1,n_outputs))
         self.weights = gpuarray.to_gpu(w.copy().astype(precision))
@@ -255,11 +246,18 @@ class Gaussian_Layer(Layer):
                         
         self.biases = gpuarray.to_gpu(b.copy().astype(precision))
         self.gB = gpuarray.empty_like(self.biases)
-        self.prior = prior
-                
+        
+        # Prior and ID are set later        
+        self.prior = -1
+        self.ID = -1
+        
         #Set up momentum variables for HMC sampler
         self.pW = gpuarray.to_gpu(np.random.normal(0,1,self.gW.shape))
         self.pB = gpuarray.to_gpu(np.random.normal(0,1,self.gB.shape))    
+        
+        #Store stepsizes for each parameter
+        self.epsW = gpuarray.zeros(self.weights.shape,precision) + 1.0
+        self.epsB = gpuarray.zeros(self.biases.shape,precision) + 1.0
         
         self.N = N
         self.outputs = gpuarray.zeros((self.N,self.n_outputs),precision)        
@@ -274,6 +272,11 @@ class Gaussian_Layer(Layer):
         ##Initialize posterior weights
         self.posterior_weights = list()
         self.posterior_biases = list()
+        
+        self.eps_tol = 1e-10
+    
+    def setPrior(self,prior):
+        self.prior = prior
     
     ##Linear output function
     def updateOutputs(self,inputs): 
@@ -282,8 +285,8 @@ class Gaussian_Layer(Layer):
         self.add_bias(self.outputs,self.biases)
     
     def get_log_like_val(self,Y):
-        prod = Y*self.outputs
-        return np.min( (gpuarray.sum(prod).get(), 10^20) )
+        prod = (Y-self.outputs)*(Y-self.outputs)/2.0
+        return np.min( (gpuarray.sum(prod).get(),10**20)  )
     
     
     ## Updates the gradient information for all of the parameters in this layer.
@@ -331,16 +334,8 @@ class Gaussian_Layer(Layer):
         #return linalg.dot(diff,linalg.transpose(self.weights))
     
     def updateMomenta(self,persist=0.0):
-        loc_pW = self.pW.get()*persist
-        loc_pW = (loc_pW + np.sqrt((1-persist**2))*np.random.normal(size=loc_pW.shape)).astype(self.precision)
-        
-        self.pW = gpuarray.to_gpu(loc_pW)
-        #self.rng.fill_normal(self.pW)
-        
-        loc_pB = self.pB.get()*persist
-        loc_pB = (loc_pB + np.sqrt((1-persist**2))*np.random.normal(size=loc_pB.shape)).astype(self.precision)
-        self.pB = gpuarray.to_gpu(loc_pB)
-              
+        self.rng.fill_normal(self.pW)
+        self.rng.fill_normal(self.pB)
     
     def setWeights(self,new_weights):
         self.weights = new_weights
@@ -349,7 +344,7 @@ class Gaussian_Layer(Layer):
         self.biases = new_biases
     
     def getNumUnits(self):
-        return self.n_outputs
+        return self.n_classes
             
     def getWeights(self):
         return self.weights
@@ -371,6 +366,13 @@ class Gaussian_Layer(Layer):
     
     def scaleStepSize(self):
         self.prior.scaleStepSize(self.epsW,self.epsB)
+
+    def getTrainAccuracy(self,Y):
+        #if self.layer_types[-1] == 'softmax':
+        preds = (self.outputs.get())
+        Y_cpu = Y.get()
+        accuracy = (np.mean((preds - Y_cpu)**2))**0.5
+        return accuracy
 
         
 class Sigmoid_Layer(Layer):
@@ -466,28 +468,6 @@ class Sigmoid_Layer(Layer):
         if self.ID > 0:
             return linalg.dot(back_prop,gpuarray.to_gpu(self.weights.get().T.copy()))
             #return linalg.dot(back_prop,linalg.transpose(self.weights))
-        else:
-            return -1            
-    
-    def updateGradient_CPU(self,bp_signal,inputs,print_timing=False):
-        
-        if print_timing:
-            t0 =  t.time()
-        back_prop = linalg.multiply(bp_signal,linalg.multiply(self.outputs,(1-self.outputs)))
-        self.gW = linalg.dot(linalg.transpose(inputs),back_prop)
-        ones = gpuarray.to_gpu(np.ones((1,self.N)).astype(self.precision))
-        self.gB = linalg.dot(ones,back_prop)
-        if print_timing:
-            t1 = t.time()
-            t0_prior = t.time()
-        self.prior.updateWeightGradient(self.weights,self.gW)
-        self.prior.updateBiasGradient(self.biases,self.gB)
-        if print_timing:
-            t1_prior = t.time()
-            print 'Time for gradient update in hidden layer ' + str(self.ID) + ' '  + str(t1-t0)
-            print 'Time for prior update in softmax layer ' + str(self.ID) + ' '  + str(t1_prior - t0_prior)
-        if self.ID > 0:
-            return linalg.dot(back_prop,self.weights,transb='T')
         else:
             return -1            
     

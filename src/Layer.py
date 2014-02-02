@@ -334,8 +334,10 @@ class Gaussian_Layer(Layer):
         #return linalg.dot(diff,linalg.transpose(self.weights))
     
     def updateMomenta(self,persist=0.0):
-        self.rng.fill_normal(self.pW)
-        self.rng.fill_normal(self.pB)
+        loc_pW = self.pW.get()*persist
+        loc_pW = (loc_pW + np.sqrt((1.0-persist**2))*np.random.normal(size=loc_pW.shape)).astype(self.precision)
+        
+        self.pW = gpuarray.to_gpu(loc_pW)
     
     def setWeights(self,new_weights):
         self.weights = new_weights

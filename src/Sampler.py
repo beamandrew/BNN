@@ -383,7 +383,7 @@ class HMC_sampler:
                 layer.scaleMomentum()
                 layer.scaleStepSize()
         init_ll = self.net.log_like_val()
-        current_k = np.log(self.net.get_total_k()/2.0)
+        current_k = self.net.get_total_k()/2.0
         current_u = self.net.posterior_kernel_val()
         self.copy_params()
         
@@ -420,11 +420,11 @@ class HMC_sampler:
         ##Calculate log_posterior value at current parameter estimates
         proposed_u = self.net.posterior_kernel_val()
         #Divide by T in the case of SA
-        proposed_k = np.log(self.net.get_total_k()/2.0)
+        proposed_k = self.net.get_total_k()/2.0
         
-        diff = ((proposed_u-proposed_k) - (current_u-current_k))/T
+        diff = (proposed_u - proposed_k - current_u + current_k) /T
         alpha = np.min([0,diff])
-        u = np.log(np.random.random(1)[0])
+        u = np.random.random(1)[0]
         self.log_alpha = alpha
         
         if u < diff:
@@ -433,8 +433,8 @@ class HMC_sampler:
         else:
             msg = 'Reject!'
             self.restore_params()       
-        if persist > 0:
-            self.negateMomenta()
+        #if persist > 0:
+            #self.negateMomenta()
         if verbose:
                 metric = 'accuracy'
                 if self.net.layers[-1].type == 'Gaussian':

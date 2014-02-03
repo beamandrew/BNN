@@ -424,7 +424,7 @@ class HMC_sampler:
         
         diff = (proposed_u - proposed_k - current_u + current_k) /T
         alpha = np.min([0,diff])
-        u = np.random.random(1)[0]
+        u = np.log(np.random.random(1)[0])
         self.log_alpha = alpha
         
         if u < diff:

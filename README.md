@@ -21,5 +21,5 @@ Python Environment
 - PyCuda - http://mathema.tician.de/software/pycuda/
 - CUDA SciKit: http://scikits.appspot.com/cuda
 
-Examples of usgage is coming soon.
+Usage examples are coming soon.
 

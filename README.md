@@ -21,5 +21,8 @@ Python Environment
 - PyCuda - http://mathema.tician.de/software/pycuda/
 - CUDA SciKit: http://scikits.appspot.com/cuda
 
-Usage examples are coming soon.
+References:
+Beam, Andrew L., Alison Motsinger-Reif, and Jon Doyle. "Bayesian neural networks for detecting epistasis in genetic association studies." BMC bioinformatics 15.1 (2014): 368.
+
+http://www.biomedcentral.com/1471-2105/15/368
 
